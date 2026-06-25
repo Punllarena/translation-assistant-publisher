@@ -11,14 +11,16 @@ class TAP_Publisher {
         $series_slug  = sanitize_title( $data['series_slug'] );
         $chapter_idx  = (int) $data['chapter_index'];
 
+        // Snapshot before find_or_create so we can tell if this is a first-time synopsis
+        $pre_existing        = get_page_by_path( $series_slug, OBJECT, 'page' );
+        $already_has_content = $pre_existing && ! empty( trim( $pre_existing->post_content ) );
+
         $index_id = $this->find_or_create_index_page(
             $series_slug, $data['series_title'], $data['series_link'], $user_id
         );
         if ( is_wp_error( $index_id ) ) return $index_id;
 
         if ( $chapter_idx === 0 ) {
-            $existing_page       = get_post( $index_id );
-            $already_has_content = $existing_page && ! empty( trim( $existing_page->post_content ) );
             $result = $this->handle_synopsis( $index_id, $data['series_title'], $data['series_link'], $data['chapter_body'] );
             if ( is_wp_error( $result ) ) return $result;
             return [
