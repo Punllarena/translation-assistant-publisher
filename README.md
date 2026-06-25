@@ -1,6 +1,6 @@
 # Translation Assistant Publisher
 
-WordPress plugin that receives chapter translation exports from [Translation Assistant](https://github.com/Punllarena/ta-python](https://github.com/Punllarena/Translation-Assistant) via REST API and publishes them as:
+WordPress plugin that receives chapter translation exports from [Translation Assistant](https://github.com/Punllarena/Translation-Assistant) via REST API and publishes them as:
 
 - A **Page** containing the translated chapter body (Gutenberg-formatted, with prev/next navigation)
 - A **Post** linking to that chapter page (series announcement)
