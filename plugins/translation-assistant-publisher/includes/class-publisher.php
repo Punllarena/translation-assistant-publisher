@@ -44,13 +44,30 @@ class TAP_Publisher {
         $chapter_url = get_permalink( $chapter_id );
         $this->append_toc_entry( $index_id, $chapter_idx, $data['chapter_title'], $chapter_url );
 
+        $post_id = $this->create_post( $data, $chapter_url, $user_id );
+        if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
+
         return [
-            'status'      => 'ok',
-            'page_url'    => $chapter_url,
-            'post_url'    => null, // filled in Task 7
-            'created'     => true,
-            '_chapter_id' => $chapter_id, // internal, removed in Task 7
+            'status'   => 'ok',
+            'page_url' => $chapter_url,
+            'post_url' => get_permalink( $post_id ),
+            'created'  => true,
         ];
+    }
+
+    public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
+        $chapter_idx = (int) $data['chapter_index'];
+        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+        $content     = '<p>' . esc_html( $data['first_line'] ) . '</p>'
+                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+
+        return wp_insert_post( [
+            'post_type'    => 'post',
+            'post_status'  => 'publish',
+            'post_title'   => $title,
+            'post_author'  => $user_id,
+            'post_content' => $content,
+        ], true );
     }
 
     public function chapter_exists( string $series_slug, int $chapter_index ): WP_Post|false {
