@@ -41,6 +41,7 @@ wp-dev/plugins/
   "series_title": "Sword of the Wanderer",
   "series_slug": "sword-of-the-wanderer",
   "series_title_short": "SotW",
+  "series_link": "https://novel18.syosetu.com/n4903fq/",
   "chapter_index": 5,
   "chapter_title": "The Forest Road",
   "chapter_body": "<p>...</p>",
@@ -50,7 +51,26 @@ wp-dev/plugins/
 
 ### Required Fields
 
-All fields are required. Missing any returns `400 "Missing field: {field}"`.
+All fields are required except `first_line` (only required when `chapter_index > 0`). Missing a required field returns `400 "Missing field: {field}"`.
+
+### Special Case: `chapter_index = 0` (Synopsis)
+
+When `chapter_index` is `0`, the submission populates the Index page itself — no child page and no post are created. `first_line` is ignored. The Index page content is set to:
+
+```html
+<div style="text-align: center;">
+  <a href="{series_link}"><strong>{series_title}</strong></a>
+</div>
+
+{chapter_body}
+
+<hr />
+
+<div>Table of Contents:</div>
+<ul class="ta-toc"></ul>
+```
+
+If the Index page already has content (e.g. synopsis was sent before), it is replaced entirely. Response returns `{"status": "ok", "page_url": "{index_page_url}", "post_url": null, "created": true}`.
 
 ---
 
@@ -88,19 +108,18 @@ All fields are required. Missing any returns `400 "Missing field: {field}"`.
 
 ### Idempotency Check
 
-Before creating anything, plugin checks if a page with slug `{series_slug}-c{chapter_index}` already exists. If yes → skip all creation, return existing URLs with `"created": false`.
+- `chapter_index=0`: if Index page already exists and has content, replace synopsis section, return `"created": false`
+- `chapter_index>0`: if page with slug `{series_slug}-c{chapter_index}` already exists → skip all creation, return existing URLs with `"created": false`
 
-### Index Page (auto-created on first chapter for a series)
+### Index Page
 
 - `post_type=page`, `post_status=publish`
 - Title: `{series_title}`
 - Slug: `{series_slug}`
 - Author: mapped user from API key
-- Initial content:
-  ```html
-  <h2>Table of Contents</h2>
-  <ul class="ta-toc"></ul>
-  ```
+- Seeded by `chapter_index=0` submission (see Special Case above)
+- If a page with slug `{series_slug}` already exists, plugin adopts it as the Index page rather than creating a new one
+- If no Index page exists when a `chapter_index>0` submission arrives (synopsis was skipped), plugin creates a bare Index page with just the ToC block and source header using available payload fields
 
 ### ToC Append
 
@@ -110,14 +129,50 @@ Finds `<ul class="ta-toc">` in Index page content, appends:
 ```
 Updates via `wp_update_post()`. HTML remains in page content if plugin is removed.
 
+If `<ul class="ta-toc">` is not found (e.g. user edited Index page), appends the full ToC block fresh at end of content:
+```html
+<h2>Table of Contents</h2>
+<ul class="ta-toc">
+  <li><a href="{chapter_page_url}">Chapter {chapter_index} — {chapter_title}</a></li>
+</ul>
+```
+
 ### Chapter Page
 
 - `post_type=page`, `post_status=publish`
 - `post_parent`: Index page ID
 - Title: `{chapter_title}`
 - Slug: `{series_slug}-c{chapter_index}` (e.g. `sword-of-the-wanderer-c5`)
-- Content: `{chapter_body}`
 - Author: mapped user from API key
+- Content: plugin converts `chapter_body` into Gutenberg block format:
+
+```
+<!-- wp:html -->
+<div id="textbox">
+<p class="alignleft">[previous_page]</p>
+<p class="alignright">[next_page]</p>
+</div>
+<!-- /wp:html -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+{each paragraph of chapter_body wrapped in <!-- wp:paragraph -->}
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:html -->
+<div id="textbox">
+<p class="alignleft">[previous_page]</p>
+<p class="alignright">[next_page]</p>
+</div>
+<!-- /wp:html -->
+```
+
+`[previous_page]` and `[next_page]` are literal shortcode strings — a separate plugin resolves them. Each `<p>` in `chapter_body` becomes one `<!-- wp:paragraph -->` block. Non-`<p>` HTML is wrapped in `<!-- wp:html -->` blocks.
 
 ### Accompanying Post
 
