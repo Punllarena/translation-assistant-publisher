@@ -30,7 +30,7 @@ function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
                   'series_link', 'chapter_index', 'chapter_title', 'chapter_body' ];
 
     foreach ( $required as $field ) {
-        if ( empty( $data[ $field ] ) && $data[ $field ] !== 0 ) {
+        if ( ! isset( $data[ $field ] ) || ( empty( $data[ $field ] ) && $data[ $field ] !== 0 ) ) {
             return new WP_REST_Response( [ 'error' => "Missing field: {$field}" ], 400 );
         }
     }
