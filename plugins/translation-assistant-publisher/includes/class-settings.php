@@ -41,7 +41,7 @@ class TAP_Settings {
         }
 
         $keys  = TAP_Auth::get_all_keys();
-        $users = get_users( [ 'capability' => 'edit_posts', 'fields' => [ 'ID', 'display_name' ] ] );
+        $users = get_users( [ 'role__in' => [ 'administrator', 'editor', 'author' ], 'fields' => [ 'ID', 'display_name' ] ] );
         ?>
         <div class="wrap">
             <h1>Translation Assistant Publisher</h1>

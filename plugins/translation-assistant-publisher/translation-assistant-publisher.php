@@ -26,6 +26,10 @@ add_action( 'rest_api_init', function () {
 function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
     $data = $request->get_json_params();
 
+    if ( ! is_array( $data ) ) {
+        return new WP_REST_Response( [ 'error' => 'Request body must be valid JSON' ], 400 );
+    }
+
     $required = [ 'api_key', 'series_title', 'series_slug', 'series_title_short',
                   'series_link', 'chapter_index', 'chapter_title', 'chapter_body' ];
 

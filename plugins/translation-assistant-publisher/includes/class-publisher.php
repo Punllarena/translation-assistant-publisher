@@ -17,13 +17,15 @@ class TAP_Publisher {
         if ( is_wp_error( $index_id ) ) return $index_id;
 
         if ( $chapter_idx === 0 ) {
+            $existing_page       = get_post( $index_id );
+            $already_has_content = $existing_page && ! empty( trim( $existing_page->post_content ) );
             $result = $this->handle_synopsis( $index_id, $data['series_title'], $data['series_link'], $data['chapter_body'] );
             if ( is_wp_error( $result ) ) return $result;
             return [
                 'status'   => 'ok',
                 'page_url' => get_permalink( $index_id ),
                 'post_url' => null,
-                'created'  => true,
+                'created'  => ! $already_has_content,
             ];
         }
 
@@ -96,23 +98,26 @@ class TAP_Publisher {
 
     public function append_toc_entry( int $index_id, int $chapter_index, string $chapter_title, string $chapter_url ): void {
         $page    = get_post( $index_id );
+        if ( ! $page ) return;
         $content = $page->post_content;
         $entry   = '<li><a href="' . esc_url( $chapter_url ) . '">Chapter ' . $chapter_index . ' — ' . esc_html( $chapter_title ) . '</a></li>';
 
         if ( str_contains( $content, '<ul class="ta-toc">' ) ) {
-            // Replace empty list first
-            $new_content = str_replace( '<ul class="ta-toc"></ul>', '<ul class="ta-toc">' . $entry . '</ul>', $content );
-            // If nothing changed (list already had entries), append before closing tag
-            if ( $new_content === $content ) {
-                $new_content = str_replace( '</ul>', $entry . '</ul>', $content );
-            }
-            $content = $new_content;
+            $content = preg_replace(
+                '/(<ul class="ta-toc">)(.*?)(<\/ul>)/s',
+                '$1$2' . $entry . '$3',
+                $content,
+                1
+            );
         } else {
             // ToC block missing — append fresh at end
             $content .= "\n\n<h2>Table of Contents</h2>\n<ul class=\"ta-toc\">\n{$entry}\n</ul>";
         }
 
-        wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ] );
+        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
+        if ( is_wp_error( $result ) ) {
+            error_log( 'TAP: append_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
+        }
     }
 
     public function find_or_create_index_page( string $series_slug, string $series_title, string $series_link, int $user_id ): int|WP_Error {
