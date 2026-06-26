@@ -65,13 +65,24 @@ class TAP_Publisher {
         $content     = '<p>' . esc_html( $data['first_line'] ) . '</p>'
                      . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
 
+        $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
+        $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
+
         return wp_insert_post( [
-            'post_type'    => 'post',
-            'post_status'  => 'publish',
-            'post_title'   => $title,
-            'post_author'  => $user_id,
-            'post_content' => $content,
+            'post_type'     => 'post',
+            'post_status'   => 'publish',
+            'post_title'    => $title,
+            'post_author'   => $user_id,
+            'post_content'  => $content,
+            'post_category' => $child_cat ? [ $child_cat ] : [],
         ], true );
+    }
+
+    private function get_or_create_category( string $name, int $parent = 0 ): int {
+        $term = term_exists( $name, 'category', $parent );
+        if ( $term ) return (int) $term['term_id'];
+        $result = wp_insert_term( $name, 'category', [ 'parent' => $parent ] );
+        return is_wp_error( $result ) ? 0 : (int) $result['term_id'];
     }
 
     public function chapter_exists( string $series_slug, int $chapter_index ): WP_Post|false {
@@ -88,13 +99,15 @@ class TAP_Publisher {
         $content     = $this->convert_to_blocks( $data['chapter_body'] );
 
         return wp_insert_post( [
-            'post_type'    => 'page',
-            'post_status'  => 'publish',
-            'post_title'   => $data['chapter_title'],
-            'post_name'    => $slug,
-            'post_parent'  => $index_id,
-            'post_author'  => $user_id,
-            'post_content' => $content,
+            'post_type'      => 'page',
+            'post_status'    => 'publish',
+            'post_title'     => $data['chapter_title'],
+            'post_name'      => $slug,
+            'post_parent'    => $index_id,
+            'post_author'    => $user_id,
+            'post_content'   => $content,
+            'comment_status' => 'open',
+            'menu_order'     => $chapter_idx,
         ], true );
     }
 
@@ -127,12 +140,14 @@ class TAP_Publisher {
         if ( $existing ) return $existing->ID;
 
         $id = wp_insert_post( [
-            'post_type'    => 'page',
-            'post_status'  => 'publish',
-            'post_title'   => $series_title,
-            'post_name'    => $series_slug,
-            'post_author'  => $user_id,
-            'post_content' => $this->build_index_content( $series_title, $series_link, '' ),
+            'post_type'      => 'page',
+            'post_status'    => 'publish',
+            'post_title'     => $series_title,
+            'post_name'      => $series_slug,
+            'post_author'    => $user_id,
+            'post_content'   => $this->build_index_content( $series_title, $series_link, '' ),
+            'comment_status' => 'open',
+            'menu_order'     => 0,
         ], true );
 
         return $id;
