@@ -51,6 +51,10 @@ class TAP_Publisher {
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
 
+        if ( isset( $data['unlock_chapter_index'] ) ) {
+            $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
+        }
+
         return [
             'status'   => 'ok',
             'page_url' => $chapter_url,
@@ -98,7 +102,7 @@ class TAP_Publisher {
         $slug        = "{$series_slug}-c{$chapter_idx}";
         $content     = $this->convert_to_blocks( $data['chapter_body'] );
 
-        return wp_insert_post( [
+        $args = [
             'post_type'      => 'page',
             'post_status'    => 'publish',
             'post_title'     => $data['chapter_title'],
@@ -108,7 +112,23 @@ class TAP_Publisher {
             'post_content'   => $content,
             'comment_status' => 'open',
             'menu_order'     => $chapter_idx,
-        ], true );
+        ];
+
+        if ( ! empty( $data['password'] ) ) {
+            $args['post_password'] = sanitize_text_field( $data['password'] );
+        }
+
+        return wp_insert_post( $args, true );
+    }
+
+    public function unlock_chapter( string $series_slug, int $chapter_index ): void {
+        $page = $this->chapter_exists( $series_slug, $chapter_index );
+        if ( ! $page ) return;
+        if ( empty( $page->post_password ) ) return;
+        wp_update_post( [
+            'ID'            => $page->ID,
+            'post_password' => '',
+        ] );
     }
 
     public function append_toc_entry( int $index_id, int $chapter_index, string $chapter_title, string $chapter_url ): void {
