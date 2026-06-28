@@ -21,6 +21,11 @@ add_action( 'rest_api_init', function () {
         'callback'            => 'tap_handle_publish',
         'permission_callback' => '__return_true',
     ] );
+    register_rest_route( 'ta-publisher/v1', '/status', [
+        'methods'             => 'GET',
+        'callback'            => 'tap_handle_status',
+        'permission_callback' => '__return_true',
+    ] );
 } );
 
 function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
@@ -55,6 +60,23 @@ function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
         return new WP_REST_Response( [ 'error' => $result->get_error_message() ], 500 );
     }
 
+    return new WP_REST_Response( $result, 200 );
+}
+
+function tap_handle_status( WP_REST_Request $request ): WP_REST_Response {
+    $api_key     = $request->get_param( 'api_key' ) ?? '';
+    $series_slug = sanitize_title( $request->get_param( 'series_slug' ) ?? '' );
+    $chapter     = (int) ( $request->get_param( 'chapter' ) ?? -1 );
+
+    if ( ! TAP_Auth::validate_key( $api_key ) ) {
+        return new WP_REST_Response( [ 'error' => 'Invalid API key' ], 401 );
+    }
+    if ( $series_slug === '' || $chapter < 0 ) {
+        return new WP_REST_Response( [ 'error' => 'Missing series_slug or chapter' ], 400 );
+    }
+
+    $publisher = new TAP_Publisher();
+    $result    = $publisher->get_chapter_status( $series_slug, $chapter );
     return new WP_REST_Response( $result, 200 );
 }
 

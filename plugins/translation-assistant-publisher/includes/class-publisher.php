@@ -51,15 +51,20 @@ class TAP_Publisher {
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
 
+        if ( ! empty( $data['password'] ) ) {
+            update_post_meta( $chapter_id, '_tap_linked_post_id', $post_id );
+        }
+
         if ( isset( $data['unlock_chapter_index'] ) ) {
             $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
         }
 
         return [
-            'status'   => 'ok',
-            'page_url' => $chapter_url,
-            'post_url' => get_permalink( $post_id ),
-            'created'  => true,
+            'status'    => 'ok',
+            'page_url'  => get_permalink( $chapter_id ),
+            'post_url'  => get_permalink( $post_id ),
+            'created'   => true,
+            'scheduled' => ! empty( $data['publish_date'] ),
         ];
     }
 
@@ -72,14 +77,24 @@ class TAP_Publisher {
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
 
-        return wp_insert_post( [
+        $post_args = [
             'post_type'     => 'post',
-            'post_status'   => 'publish',
+            'post_status'   => empty( $data['password'] ) ? 'publish' : 'draft',
             'post_title'    => $title,
             'post_author'   => $user_id,
             'post_content'  => $content,
             'post_category' => $child_cat ? [ $child_cat ] : [],
-        ], true );
+        ];
+
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $post_args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $post_args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $post_args['post_status'] = 'future';
+        }
+
+        return wp_insert_post( $post_args, true );
     }
 
     private function get_or_create_category( string $name, int $parent = 0 ): int {
@@ -94,6 +109,23 @@ class TAP_Publisher {
         // Page is a child of the index page, so the full path is parent/child.
         $page = get_page_by_path( "{$series_slug}/{$slug}", OBJECT, 'page' );
         return $page ?: false;
+    }
+
+    public function get_chapter_status( string $series_slug, int $chapter_idx ): array {
+        if ( $chapter_idx === 0 ) {
+            $page = get_page_by_path( $series_slug, OBJECT, 'page' );
+        } else {
+            $page = $this->chapter_exists( $series_slug, $chapter_idx );
+        }
+
+        if ( ! $page ) {
+            return [ 'status' => 'not_found', 'post_url' => null ];
+        }
+
+        return [
+            'status'   => $page->post_status,
+            'post_url' => get_permalink( $page->ID ),
+        ];
     }
 
     public function create_chapter_page( array $data, int $index_id, int $user_id ): int|WP_Error {
@@ -118,6 +150,14 @@ class TAP_Publisher {
             $args['post_password'] = sanitize_text_field( $data['password'] );
         }
 
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $args['post_status'] = 'future';
+        }
+
         return wp_insert_post( $args, true );
     }
 
@@ -129,6 +169,13 @@ class TAP_Publisher {
             'ID'            => $page->ID,
             'post_password' => '',
         ] );
+        $post_id = (int) get_post_meta( $page->ID, '_tap_linked_post_id', true );
+        if ( $post_id ) {
+            wp_update_post( [
+                'ID'          => $post_id,
+                'post_status' => 'publish',
+            ] );
+        }
     }
 
     public function append_toc_entry( int $index_id, int $chapter_index, string $chapter_title, string $chapter_url ): void {
