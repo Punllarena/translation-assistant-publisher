@@ -11,6 +11,13 @@ class TAP_Publisher {
         $series_slug  = sanitize_title( $data['series_slug'] );
         $chapter_idx  = (int) $data['chapter_index'];
 
+        // Client may send chapter_title already prefixed with the series short title — strip it
+        $data['chapter_title'] = preg_replace(
+            '/^' . preg_quote( $data['series_title_short'], '/' ) . '\s+/i',
+            '',
+            $data['chapter_title']
+        );
+
         // Snapshot before find_or_create so we can tell if this is a first-time synopsis
         $pre_existing        = get_page_by_path( $series_slug, OBJECT, 'page' );
         $already_has_content = $pre_existing && ! empty( trim( $pre_existing->post_content ) );
