@@ -46,7 +46,7 @@ class TAP_Publisher {
         if ( is_wp_error( $chapter_id ) ) return new WP_Error( 'page_failed', 'Failed to create page' );
 
         $chapter_url = get_permalink( $chapter_id );
-        $this->append_toc_entry( $index_id, $data['chapter_title'], $chapter_url );
+        $this->append_toc_entry( $index_id, $data['series_title_short'] . ' ' . $data['chapter_title'], $chapter_url );
 
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
