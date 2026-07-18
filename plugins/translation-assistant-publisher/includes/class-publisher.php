@@ -46,7 +46,7 @@ class TAP_Publisher {
         if ( is_wp_error( $chapter_id ) ) return new WP_Error( 'page_failed', 'Failed to create page' );
 
         $chapter_url = get_permalink( $chapter_id );
-        $this->append_toc_entry( $index_id, $chapter_idx, $data['chapter_title'], $chapter_url );
+        $this->append_toc_entry( $index_id, $data['chapter_title'], $chapter_url );
 
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
@@ -137,7 +137,7 @@ class TAP_Publisher {
         $args = [
             'post_type'      => 'page',
             'post_status'    => 'publish',
-            'post_title'     => $data['chapter_title'],
+            'post_title'     => $data['series_title_short'] . ' ' . $chapter_idx . ' - ' . $data['chapter_title'],
             'post_name'      => $slug,
             'post_parent'    => $index_id,
             'post_author'    => $user_id,
@@ -178,22 +178,25 @@ class TAP_Publisher {
         }
     }
 
-    public function append_toc_entry( int $index_id, int $chapter_index, string $chapter_title, string $chapter_url ): void {
+    public function append_toc_entry( int $index_id, string $chapter_title, string $chapter_url ): void {
         $page    = get_post( $index_id );
         if ( ! $page ) return;
         $content = $page->post_content;
-        $entry   = '<li><a href="' . esc_url( $chapter_url ) . '">Chapter ' . $chapter_index . ' — ' . esc_html( $chapter_title ) . '</a></li>';
+        $entry   = "<!-- wp:paragraph -->\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $chapter_title ) . "</a></p>\n<!-- /wp:paragraph -->";
 
-        if ( str_contains( $content, '<ul class="ta-toc">' ) ) {
+        if ( str_contains( $content, '<!-- ta-toc-end -->' ) ) {
+            $content = str_replace( '<!-- ta-toc-end -->', $entry . "\n\n<!-- ta-toc-end -->", $content );
+        } elseif ( str_contains( $content, '<ul class="ta-toc">' ) ) {
+            // Legacy list-based ToC: keep existing <li> entries, add new paragraph entries after the list
             $content = preg_replace(
-                '/(<ul class="ta-toc">)(.*?)(<\/ul>)/s',
-                '$1$2' . $entry . '$3',
+                '/(<ul class="ta-toc">.*?<\/ul>)/s',
+                '$1' . "\n\n" . $entry . "\n\n<!-- ta-toc-end -->",
                 $content,
                 1
             );
         } else {
             // ToC block missing — append fresh at end
-            $content .= "\n\n<h2>Table of Contents</h2>\n<ul class=\"ta-toc\">\n{$entry}\n</ul>";
+            $content .= "\n\n<h2>Table of Contents</h2>\n{$entry}\n\n<!-- ta-toc-end -->";
         }
 
         $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
@@ -236,7 +239,7 @@ class TAP_Publisher {
             . $synopsis_body
             . "\n\n<hr />\n\n"
             . "<div>Table of Contents:</div>\n"
-            . '<ul class="ta-toc"></ul>';
+            . '<!-- ta-toc-end -->';
     }
 
     public function convert_to_blocks( string $html ): string {
