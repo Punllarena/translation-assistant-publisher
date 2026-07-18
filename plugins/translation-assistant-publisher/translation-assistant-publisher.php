@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Translation Assistant Publisher
  * Description: Receives chapter exports from Translation Assistant and publishes pages/posts.
- * Version:     1.3.2
+ * Version:     1.3.3
  * Requires at least: 6.0
  * Requires PHP: 8.0
  */
