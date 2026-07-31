@@ -185,6 +185,37 @@ class TAP_Publisher {
         }
     }
 
+    public function attach_image( string $filename, string $mime, string $base64, int $post_id ): int|WP_Error {
+        $decoded = base64_decode( $base64, true );
+        if ( $decoded === false ) {
+            return new WP_Error( 'bad_image_data', "Could not decode image data for {$filename}" );
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $tmp_file = wp_tempnam( $filename );
+        if ( ! $tmp_file || file_put_contents( $tmp_file, $decoded ) === false ) {
+            return new WP_Error( 'temp_write_failed', "Could not write temp file for {$filename}" );
+        }
+
+        $file_array = [
+            'name'     => sanitize_file_name( $filename ),
+            'tmp_name' => $tmp_file,
+        ];
+
+        $attachment_id = media_handle_sideload( $file_array, $post_id );
+        if ( is_wp_error( $attachment_id ) ) {
+            if ( file_exists( $tmp_file ) ) {
+                @unlink( $tmp_file );
+            }
+            return $attachment_id;
+        }
+
+        return $attachment_id;
+    }
+
     public function append_toc_entry( int $index_id, string $chapter_title, string $chapter_url ): void {
         $page    = get_post( $index_id );
         if ( ! $page ) return;
