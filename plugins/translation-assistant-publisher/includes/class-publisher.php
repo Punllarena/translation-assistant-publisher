@@ -58,9 +58,7 @@ class TAP_Publisher {
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
 
-        if ( ! empty( $data['password'] ) ) {
-            update_post_meta( $chapter_id, '_tap_linked_post_id', $post_id );
-        }
+        update_post_meta( $chapter_id, '_tap_linked_post_id', $post_id );
 
         if ( isset( $data['unlock_chapter_index'] ) ) {
             $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
