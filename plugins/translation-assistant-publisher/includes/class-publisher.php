@@ -114,12 +114,19 @@ class TAP_Publisher {
         $post = get_post( $post_id );
         if ( $post ) {
             $link_line = '<p><a href="' . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
-            $post_args['post_content'] = preg_replace(
+
+            $new_content = preg_replace_callback(
                 '/<p><a href="[^"]*">Read Chapter \d+<\/a><\/p>/',
-                $link_line,
+                fn() => $link_line,
                 $post->post_content,
-                1
+                1,
+                $count
             );
+            if ( $count === 0 ) {
+                error_log( 'TAP: update_post found no Read Chapter link in post ' . $post_id );
+            } else {
+                $post_args['post_content'] = $new_content;
+            }
         }
 
         if ( ! empty( $data['publish_date'] ) ) {
