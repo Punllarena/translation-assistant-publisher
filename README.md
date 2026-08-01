@@ -61,6 +61,7 @@ Go to **WP Admin → Settings → TA Publisher** to manage API keys.
 | `series_title_short` | Yes | Used in post title (e.g. "SotW Chapter 1") |
 | `series_link` | Yes | Link to original source |
 | `chapter_index` | Yes | `0` = synopsis, `1`+ = chapters |
+| `previous_chapter_index` | No | int, optional — the chapter index this document was last published at, if different from `chapter_index`; lets the server relocate a renumbered chapter's page instead of creating a duplicate. |
 | `chapter_title` | Yes | Chapter title |
 | `chapter_body` | Yes | HTML content |
 | `first_line` | When `chapter_index > 0` | Used as post excerpt |
@@ -76,11 +77,12 @@ Populates the series Index page with the source title link, synopsis body, HR se
   "status": "ok",
   "page_url": "https://yoursite.com/sword-of-the-wanderer-c1/",
   "post_url": "https://yoursite.com/sotw-chapter-1/",
-  "created": true
+  "created": true,
+  "updated": false
 }
 ```
 
-`"created": false` on duplicate submission (idempotent — safe to retry).
+Republishing an already-published chapter no longer no-ops — `created` is `false` and `updated` is `true`, and the live page/post are overwritten with the client's current content.
 
 ### Error codes
 
@@ -88,7 +90,7 @@ Populates the series Index page with the source title link, synopsis body, HR se
 |---|---|
 | 400 | Missing required field or invalid JSON body |
 | 401 | Invalid API key |
-| 500 | WordPress post creation failed |
+| 500 | WordPress post creation failed, or `previous_chapter_index` and `chapter_index` both resolve to existing but different chapter pages (renumber conflict — the request is rejected and neither page is modified) |
 
 ---
 

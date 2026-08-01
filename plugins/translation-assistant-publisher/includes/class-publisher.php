@@ -38,14 +38,67 @@ class TAP_Publisher {
             ];
         }
 
-        // Idempotency check
-        $existing = $this->chapter_exists( $series_slug, $chapter_idx );
+        // Idempotency / renumber check
+        $existing   = $this->chapter_exists( $series_slug, $chapter_idx );
+        $renumbered = false;
+        if ( isset( $data['previous_chapter_index'] ) ) {
+            $prev = $this->chapter_exists( $series_slug, (int) $data['previous_chapter_index'] );
+            if ( $prev && $existing && $prev->ID !== $existing->ID ) {
+                return new WP_Error(
+                    'renumber_conflict',
+                    sprintf(
+                        'Chapter %d already exists; cannot renumber chapter %d into it.',
+                        $chapter_idx,
+                        (int) $data['previous_chapter_index']
+                    )
+                );
+            }
+            if ( ! $existing && $prev ) {
+                $existing   = $prev;
+                $renumbered = true;
+            }
+        }
+
         if ( $existing ) {
+            $old_url = get_permalink( $existing->ID ); // capture before any rename
+
+            if ( $renumbered ) {
+                $rename_result = wp_update_post( [
+                    'ID'         => $existing->ID,
+                    'post_name'  => "{$series_slug}-c{$chapter_idx}",
+                    'menu_order' => $chapter_idx,
+                ], true );
+                if ( is_wp_error( $rename_result ) ) return $rename_result;
+            }
+
+            $update_result = $this->update_chapter_page( $existing->ID, $data );
+            if ( is_wp_error( $update_result ) ) return $update_result;
+
+            $new_url = get_permalink( $existing->ID );
+            $this->update_toc_entry( $index_id, $old_url, $data['chapter_title'], $new_url );
+
+            $linked_post_id = (int) get_post_meta( $existing->ID, '_tap_linked_post_id', true );
+            if ( $linked_post_id && get_post( $linked_post_id ) ) {
+                $post_result = $this->update_post( $linked_post_id, $data, $new_url );
+                if ( is_wp_error( $post_result ) ) return $post_result;
+            } else {
+                // partial-failure recovery: page exists but the linked post never got created
+                $linked_post_id = $this->create_post( $data, $new_url, $user_id );
+                if ( is_wp_error( $linked_post_id ) ) return $linked_post_id;
+                update_post_meta( $existing->ID, '_tap_linked_post_id', $linked_post_id );
+            }
+
+            if ( isset( $data['unlock_chapter_index'] ) ) {
+                $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
+            }
+
             return [
-                'status'   => 'ok',
-                'page_url' => get_permalink( $existing->ID ),
-                'post_url' => null, // post_url resolved in Task 7
-                'created'  => false,
+                'status'    => 'ok',
+                'page_url'  => $new_url,
+                'post_url'  => get_permalink( $linked_post_id ),
+                'created'   => false,
+                'updated'   => true,
+                'scheduled' => ! empty( $data['publish_date'] ),
             ];
         }
 
@@ -58,9 +111,7 @@ class TAP_Publisher {
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
 
-        if ( ! empty( $data['password'] ) ) {
-            update_post_meta( $chapter_id, '_tap_linked_post_id', $post_id );
-        }
+        update_post_meta( $chapter_id, '_tap_linked_post_id', $post_id );
 
         if ( isset( $data['unlock_chapter_index'] ) ) {
             $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
@@ -71,6 +122,7 @@ class TAP_Publisher {
             'page_url'  => get_permalink( $chapter_id ),
             'post_url'  => get_permalink( $post_id ),
             'created'   => true,
+            'updated'   => false,
             'scheduled' => ! empty( $data['publish_date'] ),
         ];
     }
@@ -102,6 +154,44 @@ class TAP_Publisher {
         }
 
         return wp_insert_post( $post_args, true );
+    }
+
+    public function update_post( int $post_id, array $data, string $chapter_url ): int|WP_Error {
+        $chapter_idx = (int) $data['chapter_index'];
+        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+
+        $post_args = [
+            'ID'         => $post_id,
+            'post_title' => $title,
+        ];
+
+        $post = get_post( $post_id );
+        if ( $post ) {
+            $link_line = '<p><a href="' . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+
+            $new_content = preg_replace_callback(
+                '/<p><a href="[^"]*">Read Chapter \d+<\/a><\/p>/',
+                fn() => $link_line,
+                $post->post_content,
+                1,
+                $count
+            );
+            if ( $count === 0 ) {
+                error_log( 'TAP: update_post found no Read Chapter link in post ' . $post_id );
+            } else {
+                $post_args['post_content'] = $new_content;
+            }
+        }
+
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $post_args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $post_args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $post_args['post_status'] = 'future';
+        }
+
+        return wp_update_post( $post_args, true );
     }
 
     private function get_or_create_category( string $name, int $parent = 0 ): int {
@@ -180,6 +270,43 @@ class TAP_Publisher {
         }
 
         return $chapter_id;
+    }
+
+    public function update_chapter_page( int $chapter_id, array $data ): bool|WP_Error {
+        $attachments = get_posts( [
+            'post_type'   => 'attachment',
+            'post_parent' => $chapter_id,
+            'numberposts' => -1,
+            'post_status' => 'any',
+        ] );
+        foreach ( $attachments as $attachment ) {
+            wp_delete_attachment( $attachment->ID, true );
+        }
+
+        $content = $this->convert_to_blocks(
+            $data['chapter_body'],
+            $data['images'] ?? [],
+            $data['cover'] ?? null,
+            $chapter_id
+        );
+
+        $args = [
+            'ID'           => $chapter_id,
+            'post_title'   => $data['series_title_short'] . ' ' . (int) $data['chapter_index'] . ' - ' . $data['chapter_title'],
+            'post_content' => $content,
+        ];
+
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $args['post_status'] = 'future';
+        }
+
+        $result = wp_update_post( $args, true );
+        if ( is_wp_error( $result ) ) return $result;
+        return true;
     }
 
     public function unlock_chapter( string $series_slug, int $chapter_index ): void {
@@ -263,6 +390,28 @@ class TAP_Publisher {
         $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
         if ( is_wp_error( $result ) ) {
             error_log( 'TAP: append_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
+        }
+    }
+
+    public function update_toc_entry( int $index_id, string $old_url, string $new_title, string $new_url ): void {
+        $page = get_post( $index_id );
+        if ( ! $page ) return;
+
+        $pattern     = '/<a href="' . preg_quote( esc_url( $old_url ), '/' ) . '">.*?<\/a>/s';
+        $replacement = '<a href="' . esc_url( $new_url ) . '">' . esc_html( $new_title ) . '</a>';
+
+        $content = preg_replace_callback(
+            $pattern,
+            fn() => $replacement,
+            $page->post_content,
+            1,
+            $count
+        );
+        if ( $count === 0 ) return; // no matching anchor — nothing to fix
+
+        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
+        if ( is_wp_error( $result ) ) {
+            error_log( 'TAP: update_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
         }
     }
 
