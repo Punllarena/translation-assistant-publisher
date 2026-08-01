@@ -102,6 +102,37 @@ class TAP_Publisher {
         return wp_insert_post( $post_args, true );
     }
 
+    public function update_post( int $post_id, array $data, string $chapter_url ): int|WP_Error {
+        $chapter_idx = (int) $data['chapter_index'];
+        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+
+        $post_args = [
+            'ID'         => $post_id,
+            'post_title' => $title,
+        ];
+
+        $post = get_post( $post_id );
+        if ( $post ) {
+            $link_line = '<p><a href="' . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+            $post_args['post_content'] = preg_replace(
+                '/<p><a href="[^"]*">Read Chapter \d+<\/a><\/p>/',
+                $link_line,
+                $post->post_content,
+                1
+            );
+        }
+
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $post_args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $post_args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $post_args['post_status'] = 'future';
+        }
+
+        return wp_update_post( $post_args, true );
+    }
+
     private function get_or_create_category( string $name, int $parent = 0 ): int {
         $term = term_exists( $name, 'category', $parent );
         if ( $term ) return (int) $term['term_id'];
