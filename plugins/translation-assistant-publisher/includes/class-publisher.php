@@ -264,6 +264,22 @@ class TAP_Publisher {
         }
     }
 
+    public function update_toc_entry( int $index_id, string $old_url, string $new_title, string $new_url ): void {
+        $page = get_post( $index_id );
+        if ( ! $page ) return;
+
+        $pattern     = '/<a href="' . preg_quote( esc_url( $old_url ), '/' ) . '">.*?<\/a>/s';
+        $replacement = '<a href="' . esc_url( $new_url ) . '">' . esc_html( $new_title ) . '</a>';
+
+        $content = preg_replace( $pattern, $replacement, $page->post_content, 1, $count );
+        if ( $count === 0 ) return; // no matching anchor — nothing to fix
+
+        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
+        if ( is_wp_error( $result ) ) {
+            error_log( 'TAP: update_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
+        }
+    }
+
     public function find_or_create_index_page( string $series_slug, string $series_title, string $series_link, int $user_id ): int|WP_Error {
         $existing = get_page_by_path( $series_slug, OBJECT, 'page' );
         if ( $existing ) return $existing->ID;
