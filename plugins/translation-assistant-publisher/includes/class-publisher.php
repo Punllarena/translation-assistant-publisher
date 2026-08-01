@@ -280,7 +280,7 @@ class TAP_Publisher {
             . '<!-- ta-toc-end -->';
     }
 
-    public function convert_to_blocks( string $html ): string {
+    public function convert_to_blocks( string $html, array $images = [], ?array $cover = null, int $post_id = 0 ): string {
         $parts  = preg_split( '/(<p[^>]*>.*?<\/p>)/s', trim( $html ), -1, PREG_SPLIT_DELIM_CAPTURE );
         $blocks = [];
 
@@ -295,7 +295,37 @@ class TAP_Publisher {
             }
         }
 
+        $offset = 0;
+        foreach ( $images as $image ) {
+            $attachment_id = $this->attach_image( $image['filename'], $image['mime'], $image['data_base64'], $post_id );
+            if ( is_wp_error( $attachment_id ) ) {
+                error_log( 'TAP: attach_image failed for ' . $image['filename'] . ': ' . $attachment_id->get_error_message() );
+                continue;
+            }
+            $idx = max( 0, min( (int) $image['position'] + $offset, count( $blocks ) ) );
+            array_splice( $blocks, $idx, 0, [ $this->image_block( $attachment_id ) ] );
+            $offset++;
+        }
+
         $body = implode( "\n\n", $blocks );
-        return self::NAV_BLOCK . "\n\n" . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR . "\n\n" . self::NAV_BLOCK;
+
+        $cover_block = '';
+        if ( $cover !== null ) {
+            $cover_attachment_id = $this->attach_image( $cover['filename'], $cover['mime'], $cover['data_base64'], $post_id );
+            if ( is_wp_error( $cover_attachment_id ) ) {
+                error_log( 'TAP: attach_image (cover) failed for ' . $cover['filename'] . ': ' . $cover_attachment_id->get_error_message() );
+            } else {
+                $cover_block = $this->image_block( $cover_attachment_id ) . "\n\n";
+            }
+        }
+
+        return $cover_block . self::NAV_BLOCK . "\n\n" . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR . "\n\n" . self::NAV_BLOCK;
+    }
+
+    private function image_block( int $attachment_id ): string {
+        $url = esc_url( wp_get_attachment_url( $attachment_id ) );
+        return "<!-- wp:image {\"id\":{$attachment_id}} -->\n"
+            . "<figure class=\"wp-block-image\"><img src=\"{$url}\" class=\"wp-image-{$attachment_id}\" alt=\"\"/></figure>\n"
+            . "<!-- /wp:image -->";
     }
 }
