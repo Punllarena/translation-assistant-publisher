@@ -218,7 +218,7 @@ class TAP_Publisher {
         return $chapter_id;
     }
 
-    public function update_chapter_page( int $chapter_id, array $data ): true|WP_Error {
+    public function update_chapter_page( int $chapter_id, array $data ): bool|WP_Error {
         $attachments = get_posts( [
             'post_type'   => 'attachment',
             'post_parent' => $chapter_id,
