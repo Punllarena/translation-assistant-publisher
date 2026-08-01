@@ -173,7 +173,11 @@ class TAP_Publisher {
             $data['cover'] ?? null,
             $chapter_id
         );
-        wp_update_post( [ 'ID' => $chapter_id, 'post_content' => $content ], true );
+        $update_result = wp_update_post( [ 'ID' => $chapter_id, 'post_content' => $content ], true );
+        if ( is_wp_error( $update_result ) ) {
+            wp_delete_post( $chapter_id, true );
+            return $update_result;
+        }
 
         return $chapter_id;
     }
@@ -210,8 +214,17 @@ class TAP_Publisher {
             return new WP_Error( 'temp_write_failed', "Could not write temp file for {$filename}" );
         }
 
+        $sanitized_name = sanitize_file_name( $filename );
+        $filetype       = wp_check_filetype( $sanitized_name );
+        if ( empty( $filetype['ext'] ) ) {
+            $ext = wp_get_default_extension_for_mime_type( $mime );
+            if ( ! empty( $ext ) ) {
+                $sanitized_name .= '.' . $ext;
+            }
+        }
+
         $file_array = [
-            'name'     => sanitize_file_name( $filename ),
+            'name'     => $sanitized_name,
             'tmp_name' => $tmp_file,
         ];
 
