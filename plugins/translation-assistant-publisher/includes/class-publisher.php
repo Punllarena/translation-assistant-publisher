@@ -38,14 +38,54 @@ class TAP_Publisher {
             ];
         }
 
-        // Idempotency check
-        $existing = $this->chapter_exists( $series_slug, $chapter_idx );
+        // Idempotency / renumber check
+        $existing   = $this->chapter_exists( $series_slug, $chapter_idx );
+        $renumbered = false;
+        if ( ! $existing && isset( $data['previous_chapter_index'] ) ) {
+            $existing   = $this->chapter_exists( $series_slug, (int) $data['previous_chapter_index'] );
+            $renumbered = (bool) $existing;
+        }
+
         if ( $existing ) {
+            $old_url = get_permalink( $existing->ID ); // capture before any rename
+
+            if ( $renumbered ) {
+                $rename_result = wp_update_post( [
+                    'ID'         => $existing->ID,
+                    'post_name'  => "{$series_slug}-c{$chapter_idx}",
+                    'menu_order' => $chapter_idx,
+                ], true );
+                if ( is_wp_error( $rename_result ) ) return $rename_result;
+            }
+
+            $update_result = $this->update_chapter_page( $existing->ID, $data );
+            if ( is_wp_error( $update_result ) ) return $update_result;
+
+            $new_url = get_permalink( $existing->ID );
+            $this->update_toc_entry( $index_id, $old_url, $data['chapter_title'], $new_url );
+
+            $linked_post_id = (int) get_post_meta( $existing->ID, '_tap_linked_post_id', true );
+            if ( $linked_post_id && get_post( $linked_post_id ) ) {
+                $post_result = $this->update_post( $linked_post_id, $data, $new_url );
+                if ( is_wp_error( $post_result ) ) return $post_result;
+            } else {
+                // partial-failure recovery: page exists but the linked post never got created
+                $linked_post_id = $this->create_post( $data, $new_url, $user_id );
+                if ( is_wp_error( $linked_post_id ) ) return $linked_post_id;
+                update_post_meta( $existing->ID, '_tap_linked_post_id', $linked_post_id );
+            }
+
+            if ( isset( $data['unlock_chapter_index'] ) ) {
+                $this->unlock_chapter( $series_slug, (int) $data['unlock_chapter_index'] );
+            }
+
             return [
-                'status'   => 'ok',
-                'page_url' => get_permalink( $existing->ID ),
-                'post_url' => null, // post_url resolved in Task 7
-                'created'  => false,
+                'status'    => 'ok',
+                'page_url'  => $new_url,
+                'post_url'  => get_permalink( $linked_post_id ),
+                'created'   => false,
+                'updated'   => true,
+                'scheduled' => ! empty( $data['publish_date'] ),
             ];
         }
 
@@ -69,6 +109,7 @@ class TAP_Publisher {
             'page_url'  => get_permalink( $chapter_id ),
             'post_url'  => get_permalink( $post_id ),
             'created'   => true,
+            'updated'   => false,
             'scheduled' => ! empty( $data['publish_date'] ),
         ];
     }
