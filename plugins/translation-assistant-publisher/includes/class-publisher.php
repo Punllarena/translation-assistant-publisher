@@ -218,6 +218,43 @@ class TAP_Publisher {
         return $chapter_id;
     }
 
+    public function update_chapter_page( int $chapter_id, array $data ): true|WP_Error {
+        $attachments = get_posts( [
+            'post_type'   => 'attachment',
+            'post_parent' => $chapter_id,
+            'numberposts' => -1,
+            'post_status' => 'any',
+        ] );
+        foreach ( $attachments as $attachment ) {
+            wp_delete_attachment( $attachment->ID, true );
+        }
+
+        $content = $this->convert_to_blocks(
+            $data['chapter_body'],
+            $data['images'] ?? [],
+            $data['cover'] ?? null,
+            $chapter_id
+        );
+
+        $args = [
+            'ID'           => $chapter_id,
+            'post_title'   => $data['series_title_short'] . ' ' . (int) $data['chapter_index'] . ' - ' . $data['chapter_title'],
+            'post_content' => $content,
+        ];
+
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $args['post_status'] = 'future';
+        }
+
+        $result = wp_update_post( $args, true );
+        if ( is_wp_error( $result ) ) return $result;
+        return true;
+    }
+
     public function unlock_chapter( string $series_slug, int $chapter_index ): void {
         $page = $this->chapter_exists( $series_slug, $chapter_index );
         if ( ! $page ) return;
