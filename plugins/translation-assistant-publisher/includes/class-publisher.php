@@ -271,7 +271,13 @@ class TAP_Publisher {
         $pattern     = '/<a href="' . preg_quote( esc_url( $old_url ), '/' ) . '">.*?<\/a>/s';
         $replacement = '<a href="' . esc_url( $new_url ) . '">' . esc_html( $new_title ) . '</a>';
 
-        $content = preg_replace( $pattern, $replacement, $page->post_content, 1, $count );
+        $content = preg_replace_callback(
+            $pattern,
+            fn() => $replacement,
+            $page->post_content,
+            1,
+            $count
+        );
         if ( $count === 0 ) return; // no matching anchor — nothing to fix
 
         $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
