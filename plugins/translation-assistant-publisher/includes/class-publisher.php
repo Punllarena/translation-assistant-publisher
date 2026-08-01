@@ -41,9 +41,22 @@ class TAP_Publisher {
         // Idempotency / renumber check
         $existing   = $this->chapter_exists( $series_slug, $chapter_idx );
         $renumbered = false;
-        if ( ! $existing && isset( $data['previous_chapter_index'] ) ) {
-            $existing   = $this->chapter_exists( $series_slug, (int) $data['previous_chapter_index'] );
-            $renumbered = (bool) $existing;
+        if ( isset( $data['previous_chapter_index'] ) ) {
+            $prev = $this->chapter_exists( $series_slug, (int) $data['previous_chapter_index'] );
+            if ( $prev && $existing && $prev->ID !== $existing->ID ) {
+                return new WP_Error(
+                    'renumber_conflict',
+                    sprintf(
+                        'Chapter %d already exists; cannot renumber chapter %d into it.',
+                        $chapter_idx,
+                        (int) $data['previous_chapter_index']
+                    )
+                );
+            }
+            if ( ! $existing && $prev ) {
+                $existing   = $prev;
+                $renumbered = true;
+            }
         }
 
         if ( $existing ) {
