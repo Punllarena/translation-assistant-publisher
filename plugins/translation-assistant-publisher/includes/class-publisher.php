@@ -139,7 +139,6 @@ class TAP_Publisher {
         $series_slug = sanitize_title( $data['series_slug'] );
         $chapter_idx = (int) $data['chapter_index'];
         $slug        = "{$series_slug}-c{$chapter_idx}";
-        $content     = $this->convert_to_blocks( $data['chapter_body'] );
 
         $args = [
             'post_type'      => 'page',
@@ -148,7 +147,7 @@ class TAP_Publisher {
             'post_name'      => $slug,
             'post_parent'    => $index_id,
             'post_author'    => $user_id,
-            'post_content'   => $content,
+            'post_content'   => '',
             'comment_status' => 'open',
             'menu_order'     => $chapter_idx,
         ];
@@ -165,7 +164,18 @@ class TAP_Publisher {
             $args['post_status'] = 'future';
         }
 
-        return wp_insert_post( $args, true );
+        $chapter_id = wp_insert_post( $args, true );
+        if ( is_wp_error( $chapter_id ) ) return $chapter_id;
+
+        $content = $this->convert_to_blocks(
+            $data['chapter_body'],
+            $data['images'] ?? [],
+            $data['cover'] ?? null,
+            $chapter_id
+        );
+        wp_update_post( [ 'ID' => $chapter_id, 'post_content' => $content ], true );
+
+        return $chapter_id;
     }
 
     public function unlock_chapter( string $series_slug, int $chapter_index ): void {
