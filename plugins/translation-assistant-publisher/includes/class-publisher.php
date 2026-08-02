@@ -82,10 +82,22 @@ class TAP_Publisher {
                 $post_result = $this->update_post( $linked_post_id, $data, $new_url );
                 if ( is_wp_error( $post_result ) ) return $post_result;
             } else {
-                // partial-failure recovery: page exists but the linked post never got created
-                $linked_post_id = $this->create_post( $data, $new_url, $user_id );
-                if ( is_wp_error( $linked_post_id ) ) return $linked_post_id;
-                update_post_meta( $existing->ID, '_tap_linked_post_id', $linked_post_id );
+                // The meta is missing for two different reasons: the post genuinely
+                // failed to be created, or the chapter predates 1.5.0, when the meta
+                // was only written for password-protected chapters. Look for the post
+                // before assuming it does not exist — creating a second one publishes
+                // a duplicate to the feed.
+                $adopted = $this->find_existing_teaser_post( $data );
+                if ( $adopted ) {
+                    update_post_meta( $existing->ID, '_tap_linked_post_id', $adopted );
+                    $linked_post_id = $adopted;
+                    $post_result    = $this->update_post( $linked_post_id, $data, $new_url );
+                    if ( is_wp_error( $post_result ) ) return $post_result;
+                } else {
+                    $linked_post_id = $this->create_post( $data, $new_url, $user_id );
+                    if ( is_wp_error( $linked_post_id ) ) return $linked_post_id;
+                    update_post_meta( $existing->ID, '_tap_linked_post_id', $linked_post_id );
+                }
             }
 
             if ( isset( $data['unlock_chapter_index'] ) ) {
@@ -125,6 +137,29 @@ class TAP_Publisher {
             'updated'   => false,
             'scheduled' => ! empty( $data['publish_date'] ),
         ];
+    }
+
+    private function find_existing_teaser_post( array $data ): int {
+        $chapter_idx = (int) $data['chapter_index'];
+        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+
+        $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
+        $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
+        if ( ! $child_cat ) return 0;
+
+        $found = get_posts( [
+            'post_type'   => 'post',
+            'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
+            'title'       => $title,
+            'category'    => $child_cat,
+            'numberposts' => 2,
+            'fields'      => 'ids',
+        ] );
+
+        // Exactly one unambiguous match is adoptable. Zero means it really was
+        // never created; two or more means we cannot tell which is canonical,
+        // and guessing would compound the very duplication this prevents.
+        return count( $found ) === 1 ? (int) $found[0] : 0;
     }
 
     public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
