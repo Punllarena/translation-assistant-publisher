@@ -35,6 +35,7 @@ class TAP_Publisher {
                 'page_url' => get_permalink( $index_id ),
                 'post_url' => null,
                 'created'  => ! $already_has_content,
+                'updated'  => $already_has_content,
             ];
         }
 

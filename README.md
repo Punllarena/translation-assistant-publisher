@@ -68,21 +68,30 @@ Go to **WP Admin → Settings → TA Publisher** to manage API keys.
 
 ### Special case: `chapter_index = 0` (Synopsis)
 
-Populates the series Index page with the source title link, synopsis body, HR separator, and an empty Table of Contents. No chapter page or post is created.
+Populates the series Index page with the source title link, synopsis body, HR separator, and an empty Table of Contents. No chapter page or post is created. The response carries both `created` and `updated` keys (exactly one is `true`), matching chapter responses.
 
 ### Response
 
 ```json
 {
   "status": "ok",
-  "page_url": "https://yoursite.com/sword-of-the-wanderer-c1/",
-  "post_url": "https://yoursite.com/sotw-chapter-1/",
+  "page_url": "https://yoursite.com/sword-of-the-wanderer/",
+  "post_url": null,
   "created": true,
   "updated": false
 }
 ```
 
-Republishing an already-published chapter no longer no-ops — `created` is `false` and `updated` is `true`, and the live page/post are overwritten with the client's current content.
+All responses include both `created` and `updated` keys — exactly one is always `true`. On first publish, `created` is `true`. Republishing an already-published chapter sets `created` to `false` and `updated` to `true`; the live page/post are overwritten with the client's current content.
+
+### Republish behavior
+
+When republishing (chapter already exists):
+
+- The chapter **page title**, **body**, **opening line** (teaser), and **category** are updated from the payload.
+- The **teaser post** link, title, content, and category are updated to reflect the chapter's current content.
+- If `password` is supplied, it is applied to the chapter page; if omitted, any existing password protection is preserved. Use `unlock_chapter_index` to remove protection.
+- If `publish_date` is supplied, the chapter is scheduled; if omitted, any existing schedule is cleared and the chapter is published immediately.
 
 ### Error codes
 
