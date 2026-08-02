@@ -331,6 +331,12 @@ class TAP_Publisher {
             'post_content' => $content,
         ];
 
+        // Absence never means "unlock" — unlocking is the explicit
+        // unlock_chapter_index operation. Only apply what was sent.
+        if ( ! empty( $data['password'] ) ) {
+            $args['post_password'] = sanitize_text_field( $data['password'] );
+        }
+
         if ( ! empty( $data['publish_date'] ) ) {
             $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
             $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
