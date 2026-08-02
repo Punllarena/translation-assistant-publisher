@@ -162,6 +162,26 @@ class TAP_Publisher {
         return count( $found ) === 1 ? (int) $found[0] : 0;
     }
 
+    private function apply_schedule( array $args, array $data, bool $is_page = false ): array {
+        if ( ! empty( $data['publish_date'] ) ) {
+            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
+            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
+            $dt->setTimezone( wp_timezone() );
+            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
+            $args['post_status'] = 'future';
+            return $args;
+        }
+
+        // No publish_date: go live now. Without this branch, post_status is a
+        // one-way ratchet — a chapter scheduled once can never be unscheduled.
+        // Pages are never password-gated into draft — protection is the
+        // post_password field, not status — only teaser posts use that rule.
+        $args['post_status'] = $is_page || empty( $data['password'] ) ? 'publish' : 'draft';
+        $args['post_date']     = current_time( 'mysql' );
+        $args['post_date_gmt'] = current_time( 'mysql', true );
+        return $args;
+    }
+
     public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
         $chapter_idx = (int) $data['chapter_index'];
         $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
@@ -173,20 +193,13 @@ class TAP_Publisher {
 
         $post_args = [
             'post_type'     => 'post',
-            'post_status'   => empty( $data['password'] ) ? 'publish' : 'draft',
             'post_title'    => $title,
             'post_author'   => $user_id,
             'post_content'  => $content,
             'post_category' => $child_cat ? [ $child_cat ] : [],
         ];
 
-        if ( ! empty( $data['publish_date'] ) ) {
-            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
-            $post_args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
-            $dt->setTimezone( wp_timezone() );
-            $post_args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
-            $post_args['post_status'] = 'future';
-        }
+        $post_args = $this->apply_schedule( $post_args, $data );
 
         return wp_insert_post( $post_args, true );
     }
@@ -218,13 +231,7 @@ class TAP_Publisher {
             }
         }
 
-        if ( ! empty( $data['publish_date'] ) ) {
-            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
-            $post_args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
-            $dt->setTimezone( wp_timezone() );
-            $post_args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
-            $post_args['post_status'] = 'future';
-        }
+        $post_args = $this->apply_schedule( $post_args, $data );
 
         return wp_update_post( $post_args, true );
     }
@@ -267,7 +274,6 @@ class TAP_Publisher {
 
         $args = [
             'post_type'      => 'page',
-            'post_status'    => 'publish',
             'post_title'     => $data['series_title_short'] . ' ' . $chapter_idx . ' - ' . $data['chapter_title'],
             'post_name'      => $slug,
             'post_parent'    => $index_id,
@@ -281,13 +287,7 @@ class TAP_Publisher {
             $args['post_password'] = sanitize_text_field( $data['password'] );
         }
 
-        if ( ! empty( $data['publish_date'] ) ) {
-            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
-            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
-            $dt->setTimezone( wp_timezone() );
-            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
-            $args['post_status'] = 'future';
-        }
+        $args = $this->apply_schedule( $args, $data, true );
 
         $chapter_id = wp_insert_post( $args, true );
         if ( is_wp_error( $chapter_id ) ) return $chapter_id;
@@ -337,13 +337,7 @@ class TAP_Publisher {
             $args['post_password'] = sanitize_text_field( $data['password'] );
         }
 
-        if ( ! empty( $data['publish_date'] ) ) {
-            $dt = new DateTime( $data['publish_date'], new DateTimeZone( 'UTC' ) );
-            $args['post_date_gmt'] = $dt->format( 'Y-m-d H:i:s' );
-            $dt->setTimezone( wp_timezone() );
-            $args['post_date']   = $dt->format( 'Y-m-d H:i:s' );
-            $args['post_status'] = 'future';
-        }
+        $args = $this->apply_schedule( $args, $data, true );
 
         $result = wp_update_post( $args, true );
         if ( is_wp_error( $result ) ) return $result;
