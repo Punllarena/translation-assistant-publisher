@@ -208,28 +208,21 @@ class TAP_Publisher {
         $chapter_idx = (int) $data['chapter_index'];
         $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
 
+        // The teaser body is wholly derived from the payload — there is no
+        // human-authored content to preserve — so rebuild it exactly the way
+        // create_post does rather than patching one line of it.
+        $content = '<p>' . esc_html( $data['first_line'] ) . '</p>'
+                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+
+        $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
+        $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
+
         $post_args = [
-            'ID'         => $post_id,
-            'post_title' => $title,
+            'ID'            => $post_id,
+            'post_title'    => $title,
+            'post_content'  => $content,
+            'post_category' => $child_cat ? [ $child_cat ] : [],
         ];
-
-        $post = get_post( $post_id );
-        if ( $post ) {
-            $link_line = '<p><a href="' . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
-
-            $new_content = preg_replace_callback(
-                '/<p><a href="[^"]*">Read Chapter \d+<\/a><\/p>/',
-                fn() => $link_line,
-                $post->post_content,
-                1,
-                $count
-            );
-            if ( $count === 0 ) {
-                error_log( 'TAP: update_post found no Read Chapter link in post ' . $post_id );
-            } else {
-                $post_args['post_content'] = $new_content;
-            }
-        }
 
         $post_args = $this->apply_schedule( $post_args, $data );
 
