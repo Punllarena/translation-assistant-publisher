@@ -416,9 +416,12 @@ class TAP_Publisher {
             $content = str_replace( '<!-- ta-toc-end -->', $entry . "\n\n<!-- ta-toc-end -->", $content );
         } elseif ( str_contains( $content, '<ul class="ta-toc">' ) ) {
             // Legacy list-based ToC: keep existing <li> entries, add new paragraph entries after the list
+            // $entry may contain literal '$' or '\' (e.g. from a volume/chapter title); preg_replace's
+            // replacement argument treats those as backreference syntax, so escape them first.
+            $entry_escaped = str_replace( ['\\', '$'], ['\\\\', '\\$'], $entry );
             $content = preg_replace(
                 '/(<ul class="ta-toc">.*?<\/ul>)/s',
-                '$1' . "\n\n" . $entry . "\n\n<!-- ta-toc-end -->",
+                '$1' . "\n\n" . $entry_escaped . "\n\n<!-- ta-toc-end -->",
                 $content,
                 1
             );
