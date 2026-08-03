@@ -119,7 +119,8 @@ class TAP_Publisher {
         if ( is_wp_error( $chapter_id ) ) return new WP_Error( 'page_failed', 'Failed to create page' );
 
         $chapter_url = get_permalink( $chapter_id );
-        $this->append_toc_entry( $index_id, $data['chapter_title'], $chapter_url );
+        $volume_title = isset( $data['volume_title'] ) && is_string( $data['volume_title'] ) ? $data['volume_title'] : '';
+        $this->append_toc_entry( $index_id, $data['chapter_title'], $chapter_url, $volume_title );
 
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
@@ -395,11 +396,21 @@ class TAP_Publisher {
         return $attachment_id;
     }
 
-    public function append_toc_entry( int $index_id, string $chapter_title, string $chapter_url ): void {
+    public function append_toc_entry( int $index_id, string $chapter_title, string $chapter_url, string $volume_title = '' ): void {
         $page    = get_post( $index_id );
         if ( ! $page ) return;
         $content = $page->post_content;
         $entry   = "<!-- wp:paragraph -->\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $chapter_title ) . "</a></p>\n<!-- /wp:paragraph -->";
+
+        // Volume heading: emitted once per volume, before that volume's first chapter link.
+        // The substring check against existing content is what makes this idempotent —
+        // no publish-order state is tracked anywhere.
+        if ( '' !== $volume_title ) {
+            $heading = '<h3>' . esc_html( $volume_title ) . '</h3>';
+            if ( ! str_contains( $content, $heading ) ) {
+                $entry = "<!-- wp:heading {\"level\":3} -->\n{$heading}\n<!-- /wp:heading -->\n\n" . $entry;
+            }
+        }
 
         if ( str_contains( $content, '<!-- ta-toc-end -->' ) ) {
             $content = str_replace( '<!-- ta-toc-end -->', $entry . "\n\n<!-- ta-toc-end -->", $content );
