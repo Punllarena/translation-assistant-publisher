@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Translation Assistant Publisher
  * Description: Receives chapter exports from Translation Assistant and publishes pages/posts.
- * Version:     1.5.2
+ * Version:     1.5.3
  * Requires at least: 6.0
  * Requires PHP: 8.0
  */
@@ -35,8 +35,9 @@ function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
         return new WP_REST_Response( [ 'error' => 'Request body must be valid JSON' ], 400 );
     }
 
+    // series_link is optional: EPUB-imported series have no source URL.
     $required = [ 'api_key', 'series_title', 'series_slug', 'series_title_short',
-                  'series_link', 'chapter_index', 'chapter_title', 'chapter_body' ];
+                  'chapter_index', 'chapter_title', 'chapter_body' ];
 
     foreach ( $required as $field ) {
         if ( ! isset( $data[ $field ] ) || ( empty( $data[ $field ] ) && $data[ $field ] !== 0 ) ) {

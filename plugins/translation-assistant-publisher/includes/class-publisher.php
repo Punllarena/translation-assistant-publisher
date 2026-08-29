@@ -10,6 +10,9 @@ class TAP_Publisher {
     public function publish( array $data, int $user_id ): array|WP_Error {
         $series_slug  = sanitize_title( $data['series_slug'] );
         $chapter_idx  = (int) $data['chapter_index'];
+        // Optional since 1.5.3 — EPUB-imported series carry no source URL.
+        $data['series_link'] = isset( $data['series_link'] ) && is_string( $data['series_link'] )
+            ? $data['series_link'] : '';
 
         // Client may send chapter_title already prefixed with the series short title — strip it
         $data['chapter_title'] = preg_replace(
@@ -487,7 +490,10 @@ class TAP_Publisher {
     }
 
     private function build_index_content( string $series_title, string $series_link, string $synopsis_body ): string {
-        return '<div style="text-align: center;"><a href="' . esc_url( $series_link ) . '"><strong>' . esc_html( $series_title ) . '</strong></a></div>'
+        $heading = '' === $series_link
+            ? '<strong>' . esc_html( $series_title ) . '</strong>'
+            : '<a href="' . esc_url( $series_link ) . '"><strong>' . esc_html( $series_title ) . '</strong></a>';
+        return '<div style="text-align: center;">' . $heading . '</div>'
             . "\n\n"
             . $synopsis_body
             . "\n\n<hr />\n\n"
