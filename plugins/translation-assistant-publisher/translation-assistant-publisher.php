@@ -26,6 +26,11 @@ add_action( 'rest_api_init', function () {
         'callback'            => 'tap_handle_status',
         'permission_callback' => '__return_true',
     ] );
+    register_rest_route( 'ta-publisher/v1', '/illustrations', [
+        'methods'             => 'POST',
+        'callback'            => 'tap_handle_illustrations',
+        'permission_callback' => '__return_true',
+    ] );
 } );
 
 function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
@@ -78,6 +83,40 @@ function tap_handle_status( WP_REST_Request $request ): WP_REST_Response {
 
     $publisher = new TAP_Publisher();
     $result    = $publisher->get_chapter_status( $series_slug, $chapter );
+    return new WP_REST_Response( $result, 200 );
+}
+
+function tap_handle_illustrations( WP_REST_Request $request ): WP_REST_Response {
+    $data = $request->get_json_params();
+
+    if ( ! is_array( $data ) ) {
+        return new WP_REST_Response( [ 'error' => 'Request body must be valid JSON' ], 400 );
+    }
+
+    // series_link is optional: EPUB-imported series have no source URL.
+    $required = [ 'api_key', 'series_title', 'series_slug', 'series_title_short' ];
+    foreach ( $required as $field ) {
+        if ( ! isset( $data[ $field ] ) || ( empty( $data[ $field ] ) && $data[ $field ] !== 0 ) ) {
+            return new WP_REST_Response( [ 'error' => "Missing field: {$field}" ], 400 );
+        }
+    }
+    if ( empty( $data['images'] ) || ! is_array( $data['images'] ) ) {
+        return new WP_REST_Response( [ 'error' => 'Missing field: images' ], 400 );
+    }
+    $mode = $data['mode'] ?? 'replace';
+    if ( ! in_array( $mode, [ 'replace', 'append' ], true ) ) {
+        return new WP_REST_Response( [ 'error' => "Invalid mode: {$mode}" ], 400 );
+    }
+
+    $user_id = TAP_Auth::validate_key( $data['api_key'] );
+    if ( ! $user_id ) {
+        return new WP_REST_Response( [ 'error' => 'Invalid API key' ], 401 );
+    }
+
+    $result = ( new TAP_Publisher() )->publish_illustrations( $data, $user_id );
+    if ( is_wp_error( $result ) ) {
+        return new WP_REST_Response( [ 'error' => $result->get_error_message() ], 500 );
+    }
     return new WP_REST_Response( $result, 200 );
 }
 
