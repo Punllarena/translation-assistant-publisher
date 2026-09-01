@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Translation Assistant Publisher
  * Description: Receives chapter exports from Translation Assistant and publishes pages/posts.
- * Version:     1.5.4
+ * Version:     1.5.5
  * Requires at least: 6.0
  * Requires PHP: 8.0
  */
@@ -100,7 +100,8 @@ function tap_handle_illustrations( WP_REST_Request $request ): WP_REST_Response 
             return new WP_REST_Response( [ 'error' => "Missing field: {$field}" ], 400 );
         }
     }
-    if ( empty( $data['images'] ) || ! is_array( $data['images'] ) ) {
+    $has_cover = isset( $data['cover'] ) && is_array( $data['cover'] );
+    if ( ! is_array( $data['images'] ?? null ) || ( empty( $data['images'] ) && ! $has_cover ) ) {
         return new WP_REST_Response( [ 'error' => 'Missing field: images' ], 400 );
     }
     $mode = $data['mode'] ?? 'replace';

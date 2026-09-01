@@ -223,6 +223,11 @@ class TAP_Publisher {
             return $update;
         }
 
+        // append_toc_entry only de-dupes the volume <h3>, not the entry line
+        // itself, so add the "Illustrations" link only when the page is newly
+        // created — a re-publish would otherwise stack a second identical link.
+        // (Mirrors the chapter flow: append_toc_entry runs from
+        // create_chapter_page only, never update_chapter_page.)
         if ( $created ) {
             $this->append_toc_entry( $index_id, 'Illustrations', get_permalink( $gallery_id ), $volume_title );
         }
