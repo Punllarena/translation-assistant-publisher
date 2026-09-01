@@ -223,7 +223,9 @@ class TAP_Publisher {
             return $update;
         }
 
-        $this->append_toc_entry( $index_id, 'Illustrations', get_permalink( $gallery_id ), $volume_title );
+        if ( $created ) {
+            $this->append_toc_entry( $index_id, 'Illustrations', get_permalink( $gallery_id ), $volume_title );
+        }
 
         return [
             'status'   => 'ok',
