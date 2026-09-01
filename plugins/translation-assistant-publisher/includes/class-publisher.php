@@ -144,6 +144,95 @@ class TAP_Publisher {
         ];
     }
 
+    public function publish_illustrations( array $data, int $user_id ): array|WP_Error {
+        $series_slug  = sanitize_title( $data['series_slug'] );
+        $series_link  = isset( $data['series_link'] ) && is_string( $data['series_link'] ) ? $data['series_link'] : '';
+        $volume_title = isset( $data['volume_title'] ) && is_string( $data['volume_title'] ) ? $data['volume_title'] : '';
+        $mode         = ( $data['mode'] ?? 'replace' ) === 'append' ? 'append' : 'replace';
+        $cover        = isset( $data['cover'] ) && is_array( $data['cover'] ) ? $data['cover'] : null;
+
+        $index_id = $this->find_or_create_index_page(
+            $series_slug, $data['series_title'], $series_link, $user_id
+        );
+        if ( is_wp_error( $index_id ) ) return $index_id;
+
+        $slug = $volume_title !== ''
+              ? "{$series_slug}-illustrations-" . sanitize_title( $volume_title )
+              : "{$series_slug}-illustrations";
+        $existing = get_page_by_path( "{$series_slug}/{$slug}", OBJECT, 'page' );
+
+        if ( $mode === 'append' ) {
+            if ( ! $existing ) {
+                return new WP_Error( 'no_gallery', 'append batch received before replace batch' );
+            }
+            $blocks = $this->build_illustrations_blocks( $data['images'], null, $existing->ID );
+            $update = wp_update_post( [
+                'ID'           => $existing->ID,
+                'post_content' => rtrim( $existing->post_content ) . "\n\n" . $blocks,
+            ], true );
+            if ( is_wp_error( $update ) ) return $update;
+            return [
+                'status'   => 'ok',
+                'page_url' => get_permalink( $existing->ID ),
+                'created'  => false,
+                'updated'  => true,
+            ];
+        }
+
+        // mode === 'replace'
+        $title = $volume_title !== ''
+               ? "{$volume_title} — Illustrations"
+               : $data['series_title_short'] . ' Illustrations';
+        $created = false;
+
+        if ( $existing ) {
+            $gallery_id  = $existing->ID;
+            $attachments = get_posts( [
+                'post_type'   => 'attachment',
+                'post_parent' => $gallery_id,
+                'numberposts' => -1,
+                'post_status' => 'any',
+            ] );
+            foreach ( $attachments as $attachment ) {
+                wp_delete_attachment( $attachment->ID, true );
+            }
+        } else {
+            $gallery_id = wp_insert_post( [
+                'post_type'      => 'page',
+                'post_title'     => $title,
+                'post_name'      => $slug,
+                'post_parent'    => $index_id,
+                'post_status'    => 'publish',
+                'post_author'    => $user_id,
+                'post_content'   => '',
+                'comment_status' => 'closed',
+                'menu_order'     => 0,
+            ], true );
+            if ( is_wp_error( $gallery_id ) ) return $gallery_id;
+            $created = true;
+        }
+
+        $blocks = $this->build_illustrations_blocks( $data['images'], $cover, $gallery_id );
+        $update = wp_update_post( [
+            'ID'           => $gallery_id,
+            'post_title'   => $title,
+            'post_content' => $blocks,
+        ], true );
+        if ( is_wp_error( $update ) ) {
+            if ( $created ) wp_delete_post( $gallery_id, true );
+            return $update;
+        }
+
+        $this->append_toc_entry( $index_id, 'Illustrations', get_permalink( $gallery_id ), $volume_title );
+
+        return [
+            'status'   => 'ok',
+            'page_url' => get_permalink( $gallery_id ),
+            'created'  => $created,
+            'updated'  => ! $created,
+        ];
+    }
+
     private function find_existing_teaser_post( array $data ): int {
         $chapter_idx = (int) $data['chapter_index'];
         $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
@@ -541,6 +630,30 @@ class TAP_Publisher {
         }
 
         return $cover_block . self::NAV_BLOCK . "\n\n" . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR . "\n\n" . self::NAV_BLOCK;
+    }
+
+    private function build_illustrations_blocks( array $images, ?array $cover, int $post_id ): string {
+        $blocks = [];
+
+        if ( $cover !== null ) {
+            $cid = $this->attach_image( $cover['filename'], $cover['mime'], $cover['data_base64'], $post_id );
+            if ( is_wp_error( $cid ) ) {
+                error_log( 'TAP: attach_image (illus cover) failed: ' . $cid->get_error_message() );
+            } else {
+                $blocks[] = $this->image_block( $cid );
+            }
+        }
+
+        foreach ( $images as $image ) {
+            $aid = $this->attach_image( $image['filename'], $image['mime'], $image['data_base64'], $post_id );
+            if ( is_wp_error( $aid ) ) {
+                error_log( 'TAP: attach_image (illus) failed for ' . $image['filename'] . ': ' . $aid->get_error_message() );
+                continue;
+            }
+            $blocks[] = $this->image_block( $aid );
+        }
+
+        return implode( "\n\n", $blocks );
     }
 
     private function image_block( int $attachment_id ): string {
