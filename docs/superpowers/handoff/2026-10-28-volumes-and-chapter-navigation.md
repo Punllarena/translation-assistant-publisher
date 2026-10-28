@@ -11,7 +11,8 @@ In progress.
 |---|---|---|---|
 | 1. Test harness | done | f3bf0fe | `tests/test-smoke.php` |
 | 2. Characterisation of 1.5.5 | done | see `git log` | `tests/test-publish-legacy.php`, `tests/test-illustrations-legacy.php` |
-| 3. Error statuses | done | f040158 | `tests/test-errors.php` |
+| 3. Error statuses | done | 74477de | `tests/test-errors.php` |
+| 4. `TAP_Toc` region/parse | done | f5bb5e8 | `tests/test-toc-parse.php` |
 
 ## Deviations
 
@@ -29,6 +30,9 @@ In progress.
 - Status checking normalised in `tap_error_response()`: a `status` key in the
   error data wins; `renumber_conflict` → 422, `no_gallery` → 404, otherwise 500.
   No publisher WP_Error sets `status` yet, so the map is by code.
+- Task 4's tests were written before the implementation but not run red
+  (the plan's step 2); the class and tests were added in one edit. Later tasks
+  run red first.
 
 ## Builder's calls
 

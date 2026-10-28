@@ -14,6 +14,7 @@ define( 'TAP_DIR', plugin_dir_path( __FILE__ ) );
 require_once TAP_DIR . 'includes/class-auth.php';
 require_once TAP_DIR . 'includes/class-publisher.php';
 require_once TAP_DIR . 'includes/class-settings.php';
+require_once TAP_DIR . 'includes/class-toc.php';
 
 add_action( 'rest_api_init', function () {
     register_rest_route( 'ta-publisher/v1', '/publish', [
