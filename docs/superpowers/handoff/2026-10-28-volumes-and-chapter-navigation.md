@@ -216,3 +216,19 @@ Final full-suite output: `OK (94 tests, 448 assertions)`.
 101 plugins/translation-assistant-publisher/includes/class-settings.php
 500 plugins/translation-assistant-publisher/includes/class-toc.php
 ```
+
+## Review (Claude Code, 2026-10-28)
+
+Suite re-run (94 → 97 tests, all passing), `php -l` clean on a PHP 8.0 image, and the manual
+check done on the dev site (WordPress 7.1, Twenty Twenty-Five): two volumes with labels, an
+illustrations page published after its chapters, a summary publish, a page rewritten in the 1.5.5
+layout, and a wiped ToC. Priority 8 for the strip and the `wp_slash` retrofit hold up.
+
+Fixed on this branch:
+
+- `6bbffa8` chapter bodies were still written unslashed, so `\(^o^)/` lost its backslash.
+- `54f1308` the sibling-fallback bar got no stylesheet (enqueue only checked the ToC).
+- `6c63041` `find_link` resolved every ToC link with `url_to_postid` on every publish; it now
+  tries the exact href first.
+
+Not checked: *Next Page, Not Next Post* active alongside 1.6.0.
