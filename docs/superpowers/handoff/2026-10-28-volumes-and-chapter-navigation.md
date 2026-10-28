@@ -11,6 +11,7 @@ In progress.
 |---|---|---|---|
 | 1. Test harness | done | f3bf0fe | `tests/test-smoke.php` |
 | 2. Characterisation of 1.5.5 | done | see `git log` | `tests/test-publish-legacy.php`, `tests/test-illustrations-legacy.php` |
+| 3. Error statuses | done | f040158 | `tests/test-errors.php` |
 
 ## Deviations
 
@@ -23,6 +24,11 @@ In progress.
   undefined.
 - `tests/entrypoint.sh` passes `--skip-ssl` to the MariaDB client: the MySQL 8
   image presents a self-signed certificate that the default client rejects.
+- `tap_validate_fields()` takes `array &$data` rather than `array $data` so it
+  can normalise digit strings to ints for the publisher, as Task 3 requires.
+- Status checking normalised in `tap_error_response()`: a `status` key in the
+  error data wins; `renumber_conflict` → 422, `no_gallery` → 404, otherwise 500.
+  No publisher WP_Error sets `status` yet, so the map is by code.
 
 ## Builder's calls
 
