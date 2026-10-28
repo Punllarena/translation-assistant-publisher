@@ -16,7 +16,8 @@ In progress.
 | 5. `TAP_Toc` placement | done | 988d86c | `tests/test-toc-place.php` |
 | 6. Publisher uses `TAP_Toc` | done | df343e1 | `tests/test-publish-toc.php` |
 | 7. Chapter labels | done | bdcedb2 | `tests/test-labels.php` |
-| 8. Illustrations page | done | see `git log` | `tests/test-illustrations.php` |
+| 8. Illustrations page | done | 204ca2a | `tests/test-illustrations.php` |
+| 9. Chapter navigation | done | see `git log` | `tests/test-navigation.php` |
 
 ## Deviations
 
@@ -56,6 +57,17 @@ In progress.
   comparison, which would have treated 0 as absent).
 - The gallery page title is `"{volume} Illustrations"` (space, no em dash);
   existing galleries keep their slug and are renamed on the next replace.
+- `TAP_Navigation::strip` is registered at **priority 8**, not the plan's 9.
+  `do_blocks` is also on `the_content` at 9 and `default-filters.php` registers
+  it before plugins, so at 9 the legacy block markup has already been rendered
+  and the exact `LEGACY_NAV_BLOCK` string no longer exists. Priority 8 still
+  runs before `wpautop` (10) and `do_shortcode` (11).
+- The navigation filters also skip `is_feed()` and `doing_filter(
+  'get_the_excerpt' | 'the_excerpt' )`: an auto-excerpt on a singular page
+  runs `the_content` inside the loop, and Review Focus 5 requires no bar there.
+- `TAP_Publisher::LEGACY_NAV_BLOCK` is public (the plan asks for it);
+  `convert_to_blocks()` no longer writes it, so a re-published chapter is
+  cover + separator + body + separator.
 
 ## Builder's calls
 
@@ -77,6 +89,20 @@ In progress.
 - Insertion whitespace is `"\n\n"`-separated block splicing; extra blank
   lines can accumulate after a move (invisible in HTML), but a same-place
   rewrite replaces only the anchor, byte for byte.
+- Navigation cache: `_tap_toc_cache` stores `['hash' => md5(post_content),
+  'entries' => [...]]`; reads re-parse on any hash change. Visibility is
+  filtered after `_prime_post_caches()`, so a scheduled page going live needs
+  no cache invalidation.
+- `TAP_Toc::parse`'s chapter `index` is never used for navigation order; the
+  index page's `post_name` is passed as the series slug.
+- Bar markup: flex row with `.tap-nav__prev`, `<details class="tap-nav__picker">`
+  and `.tap-nav__next`; empty slots are empty `<span>`s. The picker groups by
+  `<span class="tap-nav__heading">` labels and `<ul class="tap-nav__items">`,
+  marks the current link with `aria-current="page"`, and has no newlines.
+  Glyphs are `‹ Previous` / `Next ›`; group labels are spans, not `<p>`, so
+  wpautop cannot inject `<p>` inside the bar.
+- Fallback order is `menu_order title` over published child pages, as 1.5.5's
+  old navigation plugin did.
 
 ## Problems
 

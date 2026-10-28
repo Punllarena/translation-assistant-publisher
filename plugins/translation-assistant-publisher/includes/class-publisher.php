@@ -4,7 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class TAP_Publisher {
 
-    private const NAV_BLOCK = "<!-- wp:html -->\n<div id=\"textbox\">\n<p class=\"alignleft\">[previous_page]</p>\n<p class=\"alignright\">[next_page]</p>\n</div>\n<!-- /wp:html -->";
+    public const LEGACY_NAV_BLOCK = "<!-- wp:html -->\n<div id=\"textbox\">\n<p class=\"alignleft\">[previous_page]</p>\n<p class=\"alignright\">[next_page]</p>\n</div>\n<!-- /wp:html -->";
     private const SEPARATOR = "<!-- wp:separator -->\n<hr class=\"wp-block-separator has-alpha-channel-opacity\"/>\n<!-- /wp:separator -->";
 
     public function publish( array $data, int $user_id ): array|WP_Error {
@@ -686,7 +686,7 @@ class TAP_Publisher {
             }
         }
 
-        return $cover_block . self::NAV_BLOCK . "\n\n" . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR . "\n\n" . self::NAV_BLOCK;
+        return $cover_block . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR;
     }
 
     private function build_illustrations_blocks( array $images, ?array $cover, int $post_id ): string {

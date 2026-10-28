@@ -15,6 +15,7 @@ require_once TAP_DIR . 'includes/class-auth.php';
 require_once TAP_DIR . 'includes/class-publisher.php';
 require_once TAP_DIR . 'includes/class-settings.php';
 require_once TAP_DIR . 'includes/class-toc.php';
+require_once TAP_DIR . 'includes/class-navigation.php';
 
 add_action( 'rest_api_init', function () {
     register_rest_route( 'ta-publisher/v1', '/publish', [
@@ -209,3 +210,5 @@ function tap_handle_illustrations( WP_REST_Request $request ): WP_REST_Response 
 
 $settings = new TAP_Settings();
 add_action( 'admin_menu', [ $settings, 'register_menu' ] );
+
+TAP_Navigation::register();
