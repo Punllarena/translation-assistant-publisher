@@ -13,7 +13,8 @@ In progress.
 | 2. Characterisation of 1.5.5 | done | see `git log` | `tests/test-publish-legacy.php`, `tests/test-illustrations-legacy.php` |
 | 3. Error statuses | done | 74477de | `tests/test-errors.php` |
 | 4. `TAP_Toc` region/parse | done | 8ebb380 | `tests/test-toc-parse.php` |
-| 5. `TAP_Toc` placement | done | see `git log` | `tests/test-toc-place.php` |
+| 5. `TAP_Toc` placement | done | 988d86c | `tests/test-toc-place.php` |
+| 6. Publisher uses `TAP_Toc` | done | see `git log` | `tests/test-publish-toc.php` |
 
 ## Deviations
 
@@ -34,6 +35,16 @@ In progress.
 - Task 4's tests were written before the implementation but not run red
   (the plan's step 2); the class and tests were added in one edit. Later tasks
   run red first.
+- Content and titles passed to `wp_insert_post`/`wp_update_post` are now
+  `wp_slash()`ed (ToC content, index head, chapter/teaser titles and teaser
+  content). WordPress unslashes these arrays; without this a literal `\` in a
+  volume or chapter title was silently dropped. This surfaced in Task 6's
+  `test_special_chars_volume_end_to_end`; 1.5.5 had the same bug.
+- `handle_synopsis()` now returns a `page_missing` WP_Error if the index page
+  disappeared between lookup and update (it previously assumed it existed).
+- On re-publish the publisher passes a resolver that only accepts pages whose
+  `post_parent` is the index page, as the plan specifies; `TAP_Toc` itself
+  stays resolver-agnostic.
 
 ## Builder's calls
 
