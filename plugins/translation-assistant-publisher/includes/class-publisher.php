@@ -262,25 +262,53 @@ class TAP_Publisher {
 
     private function find_existing_teaser_post( array $data ): int {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+
+        // A relabelled 1.5.5 chapter may still be titled "TS Chapter N"; a
+        // chapter relabelled since 1.6.0 is titled "TS {label}". Look for
+        // both, but only adopt an unambiguous single match overall.
+        $titles = [ $data['series_title_short'] . ' Chapter ' . $chapter_idx ];
+        $label  = $this->label( $data );
+        if ( null !== $label ) {
+            $titles[] = $data['series_title_short'] . ' ' . $label;
+        }
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
         if ( ! $child_cat ) return 0;
 
-        $found = get_posts( [
-            'post_type'   => 'post',
-            'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
-            'title'       => $title,
-            'category'    => $child_cat,
-            'numberposts' => 2,
-            'fields'      => 'ids',
-        ] );
+        $found = [];
+        foreach ( $titles as $title ) {
+            $matches = get_posts( [
+                'post_type'   => 'post',
+                'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
+                'title'       => $title,
+                'category'    => $child_cat,
+                'numberposts' => 2,
+                'fields'      => 'ids',
+            ] );
+            foreach ( $matches as $id ) {
+                $found[ (int) $id ] = (int) $id;
+            }
+        }
 
         // Exactly one unambiguous match is adoptable. Zero means it really was
         // never created; two or more means we cannot tell which is canonical,
         // and guessing would compound the very duplication this prevents.
-        return count( $found ) === 1 ? (int) $found[0] : 0;
+        return count( $found ) === 1 ? (int) array_values( $found )[0] : 0;
+    }
+
+    private function label( array $data ): ?string {
+        if ( isset( $data['chapter_label'] ) && is_string( $data['chapter_label'] ) ) {
+            $label = trim( $data['chapter_label'] );
+            if ( '' !== $label ) return $label;
+        }
+        return null;
+    }
+
+    private function reader_page_title( array $data ): string {
+        $label  = $this->label( $data );
+        $number = null !== $label ? $label : (string) (int) $data['chapter_index'];
+        return $data['series_title_short'] . ' ' . $number . ' - ' . $data['chapter_title'];
     }
 
     private function apply_schedule( array $args, array $data, bool $is_page = false ): array {
@@ -305,9 +333,11 @@ class TAP_Publisher {
 
     public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+        $label       = $this->label( $data );
+        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
+        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
         $content     = '<p>' . esc_html( $data['first_line'] ) . '</p>'
-                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
@@ -327,13 +357,15 @@ class TAP_Publisher {
 
     public function update_post( int $post_id, array $data, string $chapter_url ): int|WP_Error {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+        $label       = $this->label( $data );
+        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
+        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
 
         // The teaser body is wholly derived from the payload — there is no
         // human-authored content to preserve — so rebuild it exactly the way
         // create_post does rather than patching one line of it.
         $content = '<p>' . esc_html( $data['first_line'] ) . '</p>'
-                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
@@ -388,7 +420,7 @@ class TAP_Publisher {
 
         $args = [
             'post_type'      => 'page',
-            'post_title'     => wp_slash( $data['series_title_short'] . ' ' . $chapter_idx . ' - ' . $data['chapter_title'] ),
+            'post_title'     => wp_slash( $this->reader_page_title( $data ) ),
             'post_name'      => $slug,
             'post_parent'    => $index_id,
             'post_author'    => $user_id,
@@ -441,7 +473,7 @@ class TAP_Publisher {
 
         $args = [
             'ID'           => $chapter_id,
-            'post_title'   => wp_slash( $data['series_title_short'] . ' ' . (int) $data['chapter_index'] . ' - ' . $data['chapter_title'] ),
+            'post_title'   => wp_slash( $this->reader_page_title( $data ) ),
             'post_content' => $content,
         ];
 

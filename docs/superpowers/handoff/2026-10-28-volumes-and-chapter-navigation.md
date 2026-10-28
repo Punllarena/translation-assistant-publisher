@@ -14,7 +14,8 @@ In progress.
 | 3. Error statuses | done | 74477de | `tests/test-errors.php` |
 | 4. `TAP_Toc` region/parse | done | 8ebb380 | `tests/test-toc-parse.php` |
 | 5. `TAP_Toc` placement | done | 988d86c | `tests/test-toc-place.php` |
-| 6. Publisher uses `TAP_Toc` | done | see `git log` | `tests/test-publish-toc.php` |
+| 6. Publisher uses `TAP_Toc` | done | df343e1 | `tests/test-publish-toc.php` |
+| 7. Chapter labels | done | see `git log` | `tests/test-labels.php` |
 
 ## Deviations
 
@@ -45,6 +46,10 @@ In progress.
 - On re-publish the publisher passes a resolver that only accepts pages whose
   `post_parent` is the index page, as the plan specifies; `TAP_Toc` itself
   stays resolver-agnostic.
+- The teaser "Read …" link text is now `esc_html()`ed (with a label it is
+  reader-supplied text; the old numeric text needed no escaping). The
+  reader-facing page title is built by one `reader_page_title()` helper used
+  by both create and update paths.
 
 ## Builder's calls
 
