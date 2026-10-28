@@ -39,6 +39,17 @@ class TAP_Publish_Toc_Test extends TAP_TestCase {
         $this->assertSame( 1, substr_count( $content, '<!-- ta-toc-end -->' ) );
     }
 
+    public function test_chapter_body_keeps_backslashes() {
+        $body = '<p>Yay \(^o^)/ and C:\path</p>';
+        $this->publish_chapter( 1, 'Chapter 1', [ 'chapter_body' => $body ] );
+        $page = get_page_by_path( 'test-series/test-series-c1', OBJECT, 'page' );
+        $this->assertStringContainsString( $body, $page->post_content );
+
+        $this->publish_chapter( 1, 'Chapter 1', [ 'chapter_body' => $body ] );
+        $page = get_post( $page->ID );
+        $this->assertStringContainsString( $body, $page->post_content );
+    }
+
     public function test_chapter_republished_into_other_volume_moves_link() {
         $this->publish_chapter( 1, 'Chapter 1', [ 'volume_title' => 'Volume 1' ] );
         $this->publish_chapter( 2, 'Chapter 2', [ 'volume_title' => 'Volume 1' ] );

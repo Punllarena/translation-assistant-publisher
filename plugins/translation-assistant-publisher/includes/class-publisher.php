@@ -463,7 +463,7 @@ class TAP_Publisher {
             $data['cover'] ?? null,
             $chapter_id
         );
-        $update_result = wp_update_post( [ 'ID' => $chapter_id, 'post_content' => $content ], true );
+        $update_result = wp_update_post( [ 'ID' => $chapter_id, 'post_content' => wp_slash( $content ) ], true );
         if ( is_wp_error( $update_result ) ) {
             wp_delete_post( $chapter_id, true );
             return $update_result;
@@ -493,7 +493,7 @@ class TAP_Publisher {
         $args = [
             'ID'           => $chapter_id,
             'post_title'   => wp_slash( $this->reader_page_title( $data ) ),
-            'post_content' => $content,
+            'post_content' => wp_slash( $content ),
         ];
 
         // Absence never means "unlock" — unlocking is the explicit
