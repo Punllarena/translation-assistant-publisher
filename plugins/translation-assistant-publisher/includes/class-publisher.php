@@ -183,7 +183,7 @@ class TAP_Publisher {
             $blocks = $this->build_illustrations_blocks( $data['images'], null, $existing->ID );
             $update = wp_update_post( [
                 'ID'           => $existing->ID,
-                'post_content' => rtrim( $existing->post_content ) . "\n\n" . $blocks,
+                'post_content' => wp_slash( rtrim( $existing->post_content ) . "\n\n" . $blocks ),
             ], true );
             if ( is_wp_error( $update ) ) return $update;
             return [
@@ -195,10 +195,11 @@ class TAP_Publisher {
         }
 
         // mode === 'replace'
-        $title = $volume_title !== ''
-               ? "{$volume_title} — Illustrations"
+        $title       = $volume_title !== ''
+               ? "{$volume_title} Illustrations"
                : $data['series_title_short'] . ' Illustrations';
-        $created = false;
+        $first_index = isset( $data['first_chapter_index'] ) ? (int) $data['first_chapter_index'] : null;
+        $created     = false;
 
         if ( $existing ) {
             $gallery_id  = $existing->ID;
@@ -214,43 +215,45 @@ class TAP_Publisher {
         } else {
             $gallery_id = wp_insert_post( [
                 'post_type'      => 'page',
-                'post_title'     => $title,
+                'post_title'     => wp_slash( $title ),
                 'post_name'      => $slug,
                 'post_parent'    => $index_id,
                 'post_status'    => 'publish',
                 'post_author'    => $user_id,
                 'post_content'   => '',
                 'comment_status' => 'closed',
-                'menu_order'     => 0,
+                'menu_order'     => null !== $first_index ? $first_index : 0,
             ], true );
             if ( is_wp_error( $gallery_id ) ) return $gallery_id;
             $created = true;
         }
 
         $blocks = $this->build_illustrations_blocks( $data['images'], $cover, $gallery_id );
-        $update = wp_update_post( [
+        $args   = [
             'ID'           => $gallery_id,
-            'post_title'   => $title,
-            'post_content' => $blocks,
-        ], true );
+            'post_title'   => wp_slash( $title ),
+            'post_content' => wp_slash( $blocks ),
+        ];
+        if ( null !== $first_index ) {
+            $args['menu_order'] = $first_index;
+        }
+        $args   = $this->apply_schedule( $args, $data, true );
+        $update = wp_update_post( $args, true );
         if ( is_wp_error( $update ) ) {
             if ( $created ) wp_delete_post( $gallery_id, true );
             return $update;
         }
 
-        // 1.5.5 only added the link when the gallery was created. Task 8 moves
-        // this to every replace; for now keep that behaviour while routing the
-        // write through TAP_Toc.
-        if ( $created ) {
-            $this->write_toc( $index_id, $series_slug, [
-                'href'          => get_permalink( $gallery_id ),
-                'text'          => 'Illustrations',
-                'volume_title'  => $volume_title,
-                'index'         => null,
-                'illustrations' => true,
-                'anchor_index'  => null,
-            ] );
-        }
+        // Upsert on every replace: it de-dupes, moves the link under its
+        // volume heading and re-adds a link that was removed by hand.
+        $this->write_toc( $index_id, $series_slug, [
+            'href'          => get_permalink( $gallery_id ),
+            'text'          => 'Illustrations',
+            'volume_title'  => $volume_title,
+            'index'         => null,
+            'illustrations' => true,
+            'anchor_index'  => $first_index,
+        ] );
 
         return [
             'status'   => 'ok',
@@ -402,6 +405,22 @@ class TAP_Publisher {
         } else {
             $page = $this->chapter_exists( $series_slug, $chapter_idx );
         }
+
+        if ( ! $page ) {
+            return [ 'status' => 'not_found', 'post_url' => null ];
+        }
+
+        return [
+            'status'   => $page->post_status,
+            'post_url' => get_permalink( $page->ID ),
+        ];
+    }
+
+    public function get_illustrations_status( string $series_slug, string $volume_title ): array {
+        $slug = '' !== $volume_title
+            ? "{$series_slug}-illustrations-" . sanitize_title( $volume_title )
+            : "{$series_slug}-illustrations";
+        $page = get_page_by_path( "{$series_slug}/{$slug}", OBJECT, 'page' );
 
         if ( ! $page ) {
             return [ 'status' => 'not_found', 'post_url' => null ];

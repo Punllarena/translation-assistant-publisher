@@ -15,7 +15,8 @@ In progress.
 | 4. `TAP_Toc` region/parse | done | 8ebb380 | `tests/test-toc-parse.php` |
 | 5. `TAP_Toc` placement | done | 988d86c | `tests/test-toc-place.php` |
 | 6. Publisher uses `TAP_Toc` | done | df343e1 | `tests/test-publish-toc.php` |
-| 7. Chapter labels | done | see `git log` | `tests/test-labels.php` |
+| 7. Chapter labels | done | bdcedb2 | `tests/test-labels.php` |
+| 8. Illustrations page | done | see `git log` | `tests/test-illustrations.php` |
 
 ## Deviations
 
@@ -50,6 +51,11 @@ In progress.
   reader-supplied text; the old numeric text needed no escaping). The
   reader-facing page title is built by one `reader_page_title()` helper used
   by both create and update paths.
+- `/status` conflicts are detected with `get_param('chapter') !== null`, so
+  `chapter=0&illustrations=1` is a 400 as the spec says (not by an integer
+  comparison, which would have treated 0 as absent).
+- The gallery page title is `"{volume} Illustrations"` (space, no em dash);
+  existing galleries keep their slug and are renamed on the next replace.
 
 ## Builder's calls
 

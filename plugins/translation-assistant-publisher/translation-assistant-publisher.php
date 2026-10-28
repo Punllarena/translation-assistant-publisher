@@ -135,17 +135,35 @@ function tap_handle_publish( WP_REST_Request $request ): WP_REST_Response {
 function tap_handle_status( WP_REST_Request $request ): WP_REST_Response {
     $api_key     = $request->get_param( 'api_key' ) ?? '';
     $series_slug = sanitize_title( $request->get_param( 'series_slug' ) ?? '' );
-    $chapter     = (int) ( $request->get_param( 'chapter' ) ?? -1 );
 
     if ( ! TAP_Auth::validate_key( $api_key ) ) {
         return new WP_REST_Response( [ 'error' => 'Invalid API key' ], 401 );
     }
-    if ( $series_slug === '' || $chapter < 0 ) {
-        return new WP_REST_Response( [ 'error' => 'Missing series_slug or chapter' ], 400 );
+    if ( $series_slug === '' ) {
+        return new WP_REST_Response( [ 'error' => 'Missing series_slug' ], 400 );
     }
 
     $publisher = new TAP_Publisher();
-    $result    = $publisher->get_chapter_status( $series_slug, $chapter );
+
+    if ( (int) ( $request->get_param( 'illustrations' ) ?? 0 ) === 1 ) {
+        // Presence of the chapter param is the conflict — chapter=0 counts too.
+        if ( null !== $request->get_param( 'chapter' ) ) {
+            return new WP_REST_Response( [ 'error' => 'chapter and illustrations are mutually exclusive' ], 400 );
+        }
+        $volume_title = $request->get_param( 'volume_title' ) ?? '';
+        $result       = $publisher->get_illustrations_status(
+            $series_slug,
+            is_string( $volume_title ) ? $volume_title : ''
+        );
+        return new WP_REST_Response( $result, 200 );
+    }
+
+    $chapter = (int) ( $request->get_param( 'chapter' ) ?? -1 );
+    if ( $chapter < 0 ) {
+        return new WP_REST_Response( [ 'error' => 'Missing series_slug or chapter' ], 400 );
+    }
+
+    $result = $publisher->get_chapter_status( $series_slug, $chapter );
     return new WP_REST_Response( $result, 200 );
 }
 
