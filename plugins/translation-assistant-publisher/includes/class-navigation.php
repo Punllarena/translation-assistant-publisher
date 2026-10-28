@@ -26,9 +26,16 @@ class TAP_Navigation {
     public static function enqueue(): void {
         if ( ! is_singular( 'page' ) ) return;
 
-        $index_id = (int) wp_get_post_parent_id( get_queried_object_id() );
+        $page_id  = (int) get_queried_object_id();
+        $index_id = (int) wp_get_post_parent_id( $page_id );
         if ( ! $index_id ) return;
-        if ( ! self::entries( $index_id ) ) return;
+
+        // Same pages wrap() draws a bar on: listed in the ToC, or carrying the
+        // legacy block (the sibling fallback).
+        $listed = in_array( $page_id, array_column( self::entries( $index_id ), 'id' ), true );
+        if ( ! $listed && ! str_contains( (string) get_post_field( 'post_content', $page_id ), TAP_Publisher::LEGACY_NAV_BLOCK ) ) {
+            return;
+        }
 
         wp_enqueue_style(
             'tap-nav',

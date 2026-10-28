@@ -249,6 +249,38 @@ class TAP_Navigation_Test extends TAP_TestCase {
         $this->assertStringNotContainsString( 'tap-nav', $this->view( $c4 ) );
     }
 
+    public function test_stylesheet_enqueued_for_toc_and_fallback_bars() {
+        $c1 = $this->publish_chapter( 1, 'Chapter 1' );
+        $c2 = $this->publish_chapter( 2, 'Chapter 2' );
+
+        $this->go_to( get_permalink( $c1 ) );
+        TAP_Navigation::enqueue();
+        $this->assertTrue( wp_style_is( 'tap-nav', 'enqueued' ), 'ToC bar' );
+        wp_dequeue_style( 'tap-nav' );
+
+        // A 1.5.5 synopsis wiped the ToC; the page still has the old block.
+        $index = $this->index_page();
+        wp_update_post( [
+            'ID'           => $index->ID,
+            'post_content' => wp_slash( '<div>Table of Contents:</div>' . "\n" . '<!-- ta-toc-end -->' ),
+        ] );
+        wp_update_post( [
+            'ID'           => $c2,
+            'post_content' => wp_slash( TAP_Publisher::LEGACY_NAV_BLOCK . "\n\n<p>Body</p>" ),
+        ] );
+
+        $this->go_to( get_permalink( $c2 ) );
+        TAP_Navigation::enqueue();
+        $this->assertTrue( wp_style_is( 'tap-nav', 'enqueued' ), 'fallback bar' );
+        wp_dequeue_style( 'tap-nav' );
+
+        // Neither in the ToC nor carrying the old block: no bar, no stylesheet.
+        wp_update_post( [ 'ID' => $c1, 'post_content' => '<p>Plain</p>' ] );
+        $this->go_to( get_permalink( $c1 ) );
+        TAP_Navigation::enqueue();
+        $this->assertFalse( wp_style_is( 'tap-nav', 'enqueued' ), 'no bar' );
+    }
+
     public function test_bar_not_mangled_by_wpautop() {
         $c1 = $this->publish_chapter( 1, 'Chapter 1' );
         $this->publish_chapter( 2, 'Chapter 2' );
