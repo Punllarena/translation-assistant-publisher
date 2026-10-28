@@ -362,17 +362,23 @@ class TAP_Toc {
     }
 
     private static function find_link( array $links, string $target, ?callable $resolve ): ?int {
-        $target_id  = null !== $resolve ? (int) $resolve( $target ) : 0;
+        // Exact href first: it is the common case and costs no queries. Only
+        // a drifted href (http, no trailing slash, old site URL) needs the
+        // resolver, which hits the database once per link.
         $target_url = esc_url( $target );
+        foreach ( $links as $i => $link ) {
+            if ( esc_url( $link['href'] ) === $target_url ) {
+                return $i;
+            }
+        }
+
+        if ( null === $resolve ) return null;
+
+        $target_id = (int) $resolve( $target );
+        if ( $target_id <= 0 ) return null;
 
         foreach ( $links as $i => $link ) {
-            if ( null !== $resolve ) {
-                $id = (int) $resolve( $link['href'] );
-                if ( $target_id > 0 && $id > 0 && $id === $target_id ) {
-                    return $i;
-                }
-            }
-            if ( esc_url( $link['href'] ) === $target_url ) {
+            if ( (int) $resolve( $link['href'] ) === $target_id ) {
                 return $i;
             }
         }

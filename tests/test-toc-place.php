@@ -295,4 +295,24 @@ class TAP_Toc_Place_Test extends TAP_TestCase {
         $this->assertSame( 'Changed', $entries[0]['text'] );
         $this->assertSame( 'https://example.org/test-series/test-series-c3/', $entries[0]['href'] );
     }
+
+    public function test_exact_href_match_skips_resolver() {
+        $content = "<div>Table of Contents:</div>\n\n";
+        for ( $i = 1; $i <= 50; $i++ ) {
+            $content .= TAP_Toc::entry_block( "https://example.org/test-series/test-series-c{$i}/", "Chapter {$i}" ) . "\n\n";
+        }
+        $content .= '<!-- ta-toc-end -->';
+
+        $calls   = 0;
+        $resolve = static function ( string $href ) use ( &$calls ): int {
+            $calls++;
+            return 0;
+        };
+
+        $result = TAP_Toc::upsert( $content, 'test-series', $this->entry( 'test-series-c50', 'Changed', 50 ), null, $resolve );
+
+        $this->assertSame( 0, $calls );
+        $this->assertCount( 50, TAP_Toc::parse( $result, 'test-series' ) );
+        $this->assertStringContainsString( '>Changed</a>', $result );
+    }
 }
