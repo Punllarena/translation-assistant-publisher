@@ -25,10 +25,10 @@ All paths below are relative to the repo root `translation-assistant-publisher/`
 
 ## Review Focus
 
-1. Titles with `$`, `\`, `&`, quotes or Japanese text in `volume_title`, `chapter_title` or `chapter_label` — heading matching, placement and rendered text must be exact (no backreference mangling, no double-escaping). Test in Task 4 and Task 5.
+1. Titles with `$`, `\`, `&`, quotes or Japanese text in `volume_title`, `chapter_title` or `chapter_label` — heading matching, placement and rendered text must be exact (no backreference mangling, no double-escaping). Pure tests in Tasks 4–5, and an end-to-end publish/re-publish test in Task 6 (the risk is at the seam: the publisher writes `esc_html` into the heading, the next publish must match it, `parse` must decode it).
 2. Two series whose slugs are prefixes of each other (`foo` and `foo-bar`) — a `foo-bar-c3` link must never count as chapter 3 of `foo`. Test in Task 4.
 3. A password-protected chapter shows the bar around WordPress's password form, so readers can still move on. Test in Task 9.
-4. ToC hrefs that differ from `get_permalink` in form (no trailing slash, `http` vs `https`) still resolve for navigation. Test in Task 9.
+4. ToC hrefs that differ from `get_permalink` in form (no trailing slash, `http` vs `https`) still resolve — for navigation (Task 9) and for `upsert`, where a miss would insert a duplicate link (Task 6).
 5. `the_content` run for something other than the main queried page (a widget, an excerpt, a REST render) gets no bar. Test in Task 9.
 
 ---
@@ -55,7 +55,7 @@ All paths below are relative to the repo root `translation-assistant-publisher/`
 ### Task 1: Test harness
 
 **Files:**
-- Create: `composer.json`, `phpunit.xml.dist`, `tests/Dockerfile`, `tests/bootstrap.php`, `tests/wp-tests-config.php`, `tests/class-tap-testcase.php`, `tests/test-smoke.php`
+- Create: `composer.json`, `phpunit.xml.dist`, `tests/Dockerfile`, `tests/entrypoint.sh`, `tests/bootstrap.php`, `tests/wp-tests-config.php`, `tests/class-tap-testcase.php`, `tests/test-smoke.php`
 - Modify: `docker-compose.yml`, `.gitignore` (add `vendor/`, `.phpunit.result.cache`)
 
 **Interfaces:**
@@ -68,7 +68,7 @@ All paths below are relative to the repo root `translation-assistant-publisher/`
 - Run command used by every later task: `docker compose --profile test run --rm phpunit` (append `--filter <name>` to narrow).
 
 - [ ] **Step 1: Write `composer.json`** with `require-dev`: `phpunit/phpunit ^9.6`, `yoast/phpunit-polyfills ^2.0`, `wp-phpunit/wp-phpunit 6.6.*`, `roots/wordpress-no-content 6.6.*` (core files for `ABSPATH`); `config.allow-plugins` for `roots/wordpress-core-installer`; `extra.wordpress-install-dir` = `vendor/wordpress`.
-- [ ] **Step 2: Write the runtime.** `tests/Dockerfile`: `php:8.2-cli` + `mysqli` extension + composer; `WORKDIR /app`; entrypoint `sh -c "composer install -q && vendor/bin/phpunit $@"`. `docker-compose.yml` gains service `phpunit` (profile `test`, build `tests/`, volume `.:/app`, depends on `db`, env `WP_PHPUNIT__TESTS_CONFIG=/app/tests/wp-tests-config.php`). `tests/wp-tests-config.php`: `ABSPATH` = `/app/vendor/wordpress/`, DB `wordpress_test` on `db` (root/rootpass), `WP_TESTS_DOMAIN` example.org, table prefix `wptests_`. The config creates the `wordpress_test` database if missing (mysqli `CREATE DATABASE IF NOT EXISTS`). `tests/bootstrap.php`: load wp-phpunit's `includes/functions.php`, `tests_add_filter('muplugins_loaded', fn() => require '/app/plugins/translation-assistant-publisher/translation-assistant-publisher.php')`, set permalink structure `/%postname%/` in `set_up` of the base case, then wp-phpunit's `includes/bootstrap.php`. `phpunit.xml.dist`: bootstrap above, testsuite `tests/` with prefix `test-`.
+- [ ] **Step 2: Write the runtime.** `tests/Dockerfile`: `php:8.2-cli` + extensions `mysqli`, `gd`, `zip` + `default-mysql-client` + composer; `WORKDIR /app`; entrypoint script `tests/entrypoint.sh`: `composer install -q`, wait for MySQL (`until mysqladmin ping -h db -uroot -prootpass --silent; do sleep 1; done`), `mysql -h db -uroot -prootpass -e "CREATE DATABASE IF NOT EXISTS wordpress_test"`, then `exec vendor/bin/phpunit "$@"`. `docker-compose.yml`: give `db` a `healthcheck` (`mysqladmin ping`), and add service `phpunit` (profile `test`, build `tests/`, volume `.:/app`, `depends_on: db: condition: service_healthy`, env `WP_PHPUNIT__TESTS_CONFIG=/app/tests/wp-tests-config.php`, `WP_TESTS_DIR=/app/vendor/wp-phpunit/wp-phpunit`). `tests/wp-tests-config.php`: `ABSPATH` = `/app/vendor/wordpress/`, DB `wordpress_test` on `db` (root/rootpass), `WP_TESTS_DOMAIN` example.org, table prefix `wptests_`; no DB creation here. `tests/bootstrap.php`: load `getenv('WP_TESTS_DIR') . '/includes/functions.php'`, `tests_add_filter('muplugins_loaded', fn() => require '/app/plugins/translation-assistant-publisher/translation-assistant-publisher.php')`, set permalink structure `/%postname%/` in `set_up` of the base case, then `getenv('WP_TESTS_DIR') . '/includes/bootstrap.php'`. `phpunit.xml.dist`: bootstrap above, testsuite `tests/` with prefix `test-`.
 - [ ] **Step 3: Write `tests/test-smoke.php`**
 
 ```php
@@ -117,9 +117,9 @@ Pins today's behaviour before anything changes. All tests must pass against unmo
 **Interfaces:**
 - Produces: `function tap_error_response( WP_Error $e ): WP_REST_Response` — status from `$e->get_error_data()['status']` if set, else map `renumber_conflict` → 422, `no_gallery` → 404, anything else → 500; body `['error' => $e->get_error_message()]`. Both handlers use it instead of their inline 500.
 
-- [ ] **Step 1: Write tests:** `test_renumber_conflict_is_422`, `test_append_without_gallery_is_404`, `test_missing_field_is_400`, `test_bad_key_is_401`, `test_no_response_is_409` (loop over the cases above, assert none is 409).
+- [ ] **Step 1: Write tests:** `test_renumber_conflict_is_422`, `test_append_without_gallery_is_404`, `test_missing_field_is_400`, `test_bad_key_is_401`, `test_malformed_fields_are_400` (data provider: `chapter_index` "abc", -1, 1.5; `previous_chapter_index` "x"; `unlock_chapter_index` []; `chapter_label` 5; `volume_title` []; `publish_date` "not a date"; on `/illustrations`: `first_chapter_index` "x", `publish_date` "nope"), `test_digit_string_index_accepted` (`chapter_index` "3" → 200), `test_never_returns_409` (loop over all cases above, assert none is 409).
 - [ ] **Step 2: Run** — Expected: 422/404 tests FAIL (got 500).
-- [ ] **Step 3: Implement `tap_error_response`** and use it in `tap_handle_publish` and `tap_handle_illustrations`.
+- [ ] **Step 3: Implement `tap_error_response`** and use it in `tap_handle_publish` and `tap_handle_illustrations`. Add `function tap_validate_fields( array $data ): ?WP_REST_Response` (400 or null) for the malformed-field rules in the spec's status table, called by both handlers after the required-field check; a valid digit string is normalised to int in `$data`.
 - [ ] **Step 4: Run** — Expected: all pass (Task 2's `!== 200` tests still pass).
 - [ ] **Step 5: Commit** `git commit -m "fix: 404/422 statuses for missing gallery and renumber conflict"`
 
@@ -165,13 +165,13 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
 **Interfaces:**
 - Consumes: Task 4's functions.
 - Produces:
-  - `TAP_Toc::upsert( string $content, string $series_slug, array $entry, ?string $old_href = null ): string` where `$entry = ['href'=>string,'text'=>string,'volume_title'=>string,'index'=>?int,'illustrations'=>bool,'anchor_index'=>?int]` (`anchor_index` = `first_chapter_index` for illustrations, else = `index`). Behaviour, per spec "ToC placement rules":
-    1. Find the existing link by `$old_href ?? href` (compare with `esc_url` forms).
+  - `TAP_Toc::upsert( string $content, string $series_slug, array $entry, ?string $old_href = null, ?callable $resolve = null ): string` where `$entry = ['href'=>string,'text'=>string,'volume_title'=>string,'index'=>?int,'illustrations'=>bool,'anchor_index'=>?int]` (`anchor_index` = `first_chapter_index` for illustrations, else = `index`). Behaviour, per spec "ToC placement rules":
+    1. Find the existing link: the ToC link whose href resolves (`url_to_postid`) to the same page as `$old_href ?? href`, else one whose `esc_url` form equals it (spec "Identifying a link"). Resolution goes through `$resolve` (`fn(string $href): int` — page ID or 0; null = string comparison only) so pure tests can stub it; the publisher passes a resolver wrapping `url_to_postid` with the `post_parent === $index_id` check.
     2. If found and in the right section (`volume_title` '' = stay in current section) and in order (illustrations: first in section; chapter: neighbours' indexes not out of order) → rewrite only its href and text in place; return.
     3. Otherwise remove its paragraph block (if found) and insert per placement rules, creating the volume section (heading block in 1.5.5's exact markup) where the spec says.
-    4. No END marker and no legacy `<ul>` → append `\n\n<h2>Table of Contents</h2>\n{entry}\n\n<!-- ta-toc-end -->` as 1.5.5 did.
+    4. No END marker but a legacy `<ul class="ta-toc">` → insert the entry after its `</ul>` followed by END (1.5.5's middle branch, built by concatenation). Neither → append `\n\n<h2>Table of Contents</h2>\n{entry}\n\n<!-- ta-toc-end -->` as 1.5.5 did.
   - `TAP_Toc::entry_block( string $href, string $text ): string` — 1.5.5's paragraph markup.
-  - `TAP_Toc::replace_head( string $content, string $new_head ): string` — spec section E: replace everything before the start marker with `$new_head` (which ends with the start marker + END as `build_index_content` builds it; the function keeps the original from the start marker onward); no start marker → `$new_head` with the old fallback-region entries carried in before END.
+  - `TAP_Toc::replace_head( string $content, string $head ): string` — spec section E's exact byte rule, four cases. `$head` is `build_index_content(...)` cut just before its `<div>Table of Contents:</div>` (the publisher cuts it); this function never emits a second start marker or END.
 - All string splicing uses `substr_replace`/concatenation — never a `preg_replace` replacement string built from titles.
 
 - [ ] **Step 1: Write tests** (each builds content, calls `upsert`, asserts on `parse()` output order/headings):
@@ -188,8 +188,10 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
   - `test_republish_without_volume_never_changes_section`
   - `test_missing_link_readded`
   - `test_special_chars_round_trip` — title/heading `Vol $1 \& "Ω" 第二巻` inserted and parsed back exactly.
-  - `test_replace_head_keeps_toc_bytes` — everything from the marker onward byte-identical.
+  - `test_replace_head_keeps_toc_bytes` — data provider over the `<div>`, `<h2>` and legacy `<ul>` shapes: everything from the marker onward byte-identical; exactly one start marker (`substr_count`) and at most one END afterwards.
   - `test_replace_head_without_marker_carries_entries`
+  - `test_legacy_ul_without_end_marker` — upsert into a page with only `<ul class="ta-toc">…</ul>`: entry after `</ul>`, one END, no `<h2>Table of Contents</h2>` added.
+  - `test_existing_link_found_by_resolver` — stored href `http://…/test-series-c3` (no slash), resolver maps both forms to the same ID → link rewritten in place, no second entry.
 - [ ] **Step 2: Run** — Expected: FAIL (`upsert` undefined).
 - [ ] **Step 3: Implement** `upsert`, `entry_block`, `replace_head`.
 - [ ] **Step 4: Run** — Expected: pass.
@@ -200,7 +202,7 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
 ### Task 6: Publisher uses `TAP_Toc`; synopsis keeps the ToC
 
 **Files:**
-- Modify: `P/includes/class-publisher.php` (remove `append_toc_entry`, `update_toc_entry`; `publish`, `handle_synopsis`)
+- Modify: `P/includes/class-publisher.php` (remove `append_toc_entry`, `update_toc_entry`; `publish`, `handle_synopsis`; and move `publish_illustrations`'s ToC call onto `write_toc` now — `illustrations` true, `anchor_index` null, otherwise its 1.5.5 behaviour — so Task 2's illustrations tests keep passing; Task 8 finishes it)
 - Create: `tests/test-publish-toc.php`
 
 **Interfaces:**
@@ -213,6 +215,9 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
   - `test_renumbered_chapter_link_reordered`
   - `test_deleted_link_readded_on_republish`
   - `test_out_of_order_publish_lands_in_order` — publish c2 then c1 in one volume → ToC c1, c2.
+  - `test_special_chars_volume_end_to_end` — publish c1, c2 into volume `Vol $1 \& "Ω" 第二巻`, re-publish c1 → exactly one heading, `parse` returns the title exactly.
+  - `test_drifted_href_not_duplicated` — rewrite c1's ToC href to `http://` without trailing slash, re-publish c1 → one c1 link.
+  - `test_synopsis_ignores_label_and_volume` — chapter 0 with `chapter_label` and `volume_title` → no heading added, response as before.
   - Update `test_synopsis_on_fresh_index` (Task 2) only if its assertions conflict; they shouldn't.
 - [ ] **Step 2: Run** — Expected: new tests FAIL.
 - [ ] **Step 3: Implement.** In `publish()` new-page path call `write_toc` with the new URL; in the existing-page path call it with `old_href` = the pre-rename permalink (replaces `update_toc_entry`). `handle_synopsis` builds the head with `build_index_content` and applies `TAP_Toc::replace_head` to the current content.
@@ -254,12 +259,12 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
 - [ ] **Step 1: Write tests:**
   - `test_title_volume_illustrations` — "Volume 2 Illustrations"; without volume "TS Illustrations"; a replace on an existing gallery renames from the dash form.
   - `test_toc_first_when_published_after_chapters`, `test_republish_does_not_duplicate_link`, `test_missing_link_readded`.
-  - `test_menu_order_first_chapter_index` — sent 5 → `menu_order` 5; absent → 0.
+  - `test_menu_order_first_chapter_index` — sent 5 → `menu_order` 5; absent on create → 0; absent on a later replace → stays 5.
   - `test_publish_date_schedules_replace_only` — replace with date → `future`; append leaves status; replace without date → `publish`.
-  - `test_status_lookup` — `GET /status?series_slug=test-series&illustrations=1&volume_title=Volume 2` → `publish` + URL; unknown volume → `not_found`; `chapter=1&illustrations=1` → 400; `illustrations=1` without `chapter` no longer 400.
+  - `test_status_lookup` — `GET /status?series_slug=test-series&illustrations=1&volume_title=Volume 2` → `publish` + URL; unknown volume → `not_found`; `chapter=1&illustrations=1` → 400; `chapter=0&illustrations=1` → 400; `illustrations=1` without `chapter` no longer 400; `illustrations=1` without `volume_title` → the no-volume gallery (`{series}-illustrations`).
   - `test_bad_publish_date_is_400`.
 - [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement.** Title per spec; `write_toc` on every `replace` (upsert handles de-dupe and re-add) with `illustrations` true and `anchor_index` = `first_chapter_index`; `menu_order` set on create and replace when sent; `apply_schedule(..., true)` on replace only; validate `publish_date` parses (`DateTime` in try/catch → 400) in both handlers; status route branches on `illustrations`.
+- [ ] **Step 3: Implement.** Detect "both params" by presence of the `chapter` param, not its `(int)` value. Title per spec; `write_toc` on every `replace` (upsert handles de-dupe and re-add) with `illustrations` true and `anchor_index` = `first_chapter_index`; `menu_order` set on create and replace when sent; `apply_schedule(..., true)` on replace only; validate `publish_date` parses (`DateTime` in try/catch → 400) in both handlers; status route branches on `illustrations`.
 - [ ] **Step 4: Run** — pass.
 - [ ] **Step 5: Commit** `git commit -m "feat: illustrations page title, placement, schedule and status"`
 
@@ -274,11 +279,14 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
 **Interfaces:**
 - Consumes: `TAP_Toc::parse`, `TAP_Publisher::LEGACY_NAV_BLOCK` (make it `public const`).
 - Produces:
-  - `TAP_Navigation::register(): void` — `add_filter('the_content', [self::class,'filter'], 9)`; `wp_enqueue_scripts` enqueues `nav.css` only when `self::entries_for_current()` is non-empty.
-  - `TAP_Navigation::filter( string $content ): string` — only when `is_singular('page') && in_the_loop() && is_main_query()` and `get_the_ID() === get_queried_object_id()`; strips `LEGACY_NAV_BLOCK` (all copies, exact string); wraps with the bar when the current page is in the visible list.
-  - `TAP_Navigation::entries( int $index_id ): array` — list of `['id'=>int,'text'=>string,'heading'=>string]`, from post meta `_tap_toc_cache` = `['hash'=>md5(post_content),'entries'=>…]`, re-parsed on hash mismatch. Series slug for `parse` = the index page's `post_name`. Hrefs resolved with `url_to_postid`; kept only when `post_parent === $index_id`.
+  - `TAP_Navigation::register(): void` — `add_filter('the_content', [self::class,'strip'], 9)` and `add_filter('the_content', [self::class,'wrap'], 20)`; `wp_enqueue_scripts` enqueues `nav.css` on singular pages whose parent has a ToC.
+  - Both filters act only when `is_singular('page') && in_the_loop() && is_main_query()` and `get_the_ID() === get_queried_object_id()`.
+  - `TAP_Navigation::strip( string $content ): string` — removes `LEGACY_NAV_BLOCK` (all copies, exact string) and remembers for this request whether it was present.
+  - `TAP_Navigation::wrap( string $content ): string` — bar list = the ToC entries if the current page is among them; else, if the legacy block was present, the fallback siblings (spec D "Fallback"); else no bar. Bar markup is emitted without newlines inside it.
+  - `TAP_Navigation::entries( int $index_id ): array` — list of `['id'=>int,'text'=>string,'heading'=>string]`, from post meta `_tap_toc_cache` = `['hash'=>md5(post_content),'entries'=>…]`, re-parsed on hash mismatch. Order comes from document order only; `parse`'s `index` field is not used here, so passing the index page's `post_name` as the series slug is fine even where it differs from the payload slug. Hrefs resolved with `url_to_postid`; kept only when `post_parent === $index_id`.
+  - `TAP_Navigation::siblings( int $index_id ): array` — same shape, heading '' , published child pages ordered `menu_order`, `post_title`.
   - `TAP_Navigation::visible( array $entries ): array` — `_prime_post_caches( ids )`, keep `post_status === 'publish'`.
-  - `TAP_Navigation::render( array $visible, int $current_id ): string` — markup per spec D: `<nav class="tap-nav" aria-label="Chapter navigation">` with `.tap-nav__prev`, `<details class="tap-nav__picker"><summary>` (current text, heading under it) `</summary>` grouped `<ul>`s under heading labels, current link `aria-current="page"`, `.tap-nav__next`; empty prev/next slots kept as empty `<span>`s.
+  - `TAP_Navigation::render( array $visible, int $current_id, string $where ): string` (`$where` 'top'|'bottom') — markup per spec D: `<nav class="tap-nav" aria-label="Chapter navigation, {$where}">` with `.tap-nav__prev`, `<details class="tap-nav__picker"><summary>` (current text, heading under it) `</summary>` grouped `<ul>`s under heading labels, current link `aria-current="page"`, `.tap-nav__next`; empty prev/next slots kept as empty `<span>`s.
 
 - [ ] **Step 1: Write tests** (set up the global query with `$this->go_to( get_permalink( $id ) )`, then `the_post()` and `apply_filters( 'the_content', … )`):
   - `test_prev_next_follow_toc_not_menu_order` — ToC order illustrations, c1, c2 with `menu_order` 5, 1, 2 → on c1 prev is illustrations, next c2.
@@ -289,6 +297,9 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
   - `test_no_bar_outside_main_query` — `apply_filters('the_content', …)` for another page while the queried page is c1 → unchanged; excerpt/feed context → unchanged (Review Focus 5).
   - `test_index_page_gets_no_bar`, `test_hand_edited_toc_changes_order` (edit index content → cache hash miss → new order).
   - `test_legacy_nav_block_stripped` — page content built with 1.5.5's markup → no `[previous_page]`, separators kept, bar twice.
+  - `test_wiped_toc_falls_back_to_siblings` — index ToC empty, chapters c1–c3 with the legacy block and `menu_order` 1–3 → on c2, prev c1, next c3; a page without the legacy block and not in the ToC → no bar.
+  - `test_bar_not_mangled_by_wpautop` — rendered bar contains no `<br />` and no `<p>` inside `.tap-nav`.
+  - `test_landmark_labels_distinct` — "Chapter navigation, top" and "…, bottom" each once.
   - `test_new_publish_has_no_shortcodes`.
   - `test_link_text_escaped` — chapter title `<script>` in ToC renders escaped.
 - [ ] **Step 2: Run** — FAIL.
@@ -303,7 +314,7 @@ Pure functions on strings; tests need no REST calls (still run under `WP_UnitTes
 **Files:**
 - Modify: `P/translation-assistant-publisher.php` (header `Version: 1.6.0`), `README.md`
 
-- [ ] **Step 1: Update README:** `/publish` table adds `chapter_label`; new `/illustrations` table rows `publish_date`, `first_chapter_index`; `/status` illustrations form; error table from Global Constraints (note: never 409); synopsis section drops "an empty Table of Contents"; "Chapter Page Format" says the bar is drawn by this plugin and to deactivate *Next Page, Not Next Post*; a "Running tests" section with `docker compose --profile test run --rm phpunit`; a 1.6.0 changes list.
+- [ ] **Step 1: Update README:** `series_link` marked optional (true since 1.5.3); `/publish` table adds `chapter_label`; new `/illustrations` table rows `publish_date`, `first_chapter_index`; `/status` illustrations form; error table from Global Constraints (note: never 409); synopsis section drops "an empty Table of Contents"; "Chapter Page Format" says the bar is drawn by this plugin; an upgrade note: check each series' ToC has its chapter links before deactivating *Next Page, Not Next Post* (pages with the old block still navigate by page order meanwhile; re-publishing restores missing links); a "Running tests" section with `docker compose --profile test run --rm phpunit`; a 1.6.0 changes list.
 - [ ] **Step 2: Run** full suite once more — Expected: all pass.
-- [ ] **Step 3: Manual check** on the dev site (`docker compose up -d`, http://localhost:8080): publish two volumes with an illustrations page via curl or ta-web, view a chapter — bar at top and bottom, picker grouped, the old plugin deactivated.
+- [ ] **Step 3: Manual check** on the dev site (`docker compose up -d`, http://localhost:8080): first publish one chapter with the **1.5.5** plugin (`git stash`/checkout `master`'s plugin dir) so a pre-1.6.0 page exists, then switch to this branch; publish two volumes with an illustrations page via curl or ta-web, view a chapter and the old page — bar at top and bottom, picker grouped, no `[previous_page]` on the old page and its separators kept, with the old plugin deactivated.
 - [ ] **Step 4: Commit** `git commit -m "docs: 1.6.0 README and version"`

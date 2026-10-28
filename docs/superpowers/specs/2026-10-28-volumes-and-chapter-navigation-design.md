@@ -23,8 +23,10 @@ for a flat, series-wide chapter list, so on a multi-volume series:
   and fills the `[previous_page]` / `[next_page]` shortcodes the plugin writes into every page;
 - every failure is HTTP 500, and the plugin has no tests;
 - **live bug:** publishing the synopsis (`chapter_index` 0, `handle_synopsis`) rebuilds the whole
-  index page from `build_index_content`, leaving an *empty* ToC. ta-web re-sends the series summary
-  as chapter 0 whenever the user edits it (`api/wp_summary.py`), so one summary edit wipes every ToC
+  index page from `build_index_content`, leaving an *empty* ToC. After the user edits a series
+  summary, ta-web marks it pending and sends it as chapter 0 just before the next chapter or
+  illustrations publish of that series (`api/wp_summary.py`, `api/publish_job.py`), so every
+  summary edit wipes every ToC
   link, volume heading and illustrations link on the site. Under D the ToC is the navigation, so it
   would also remove the bar from every chapter.
 
@@ -100,7 +102,8 @@ under the volume heading; the page title carries the volume name).
 ### `menu_order`
 
 *My call (differs from what was talked through):* the illustrations page gets `menu_order` =
-`first_chapter_index` when sent, else unchanged from today. Chapter pages use `menu_order` =
+`first_chapter_index` when sent. When absent: 0 on create (as today), and left as it is on a
+`replace` of an existing gallery. Chapter pages use `menu_order` =
 series-wide chapter index, so there is no integer strictly between Volume 1's last chapter and
 Volume 2's first; renumbering every existing page to make room is not worth it now that the
 navigation (D) no longer orders by `menu_order`. This is a best-effort hint for other plugins/themes
@@ -148,10 +151,12 @@ With `chapter_label` present (L), replacing the series-wide index N in reader-fa
 | Teaser post title | `{short} Chapter {N}` | `{short} {L}` |
 | Teaser "Read …" link text | `Read Chapter {N}` | `Read {L}` |
 
-*My call (differs from what was talked through):* the **ToC link text stays `chapter_title`**, as
-today. In ta-web the chapter title typically already reads "Chapter 3: …" per volume, so prefixing the
-label would read "Volume 2 Chapter 3 Chapter 3: …"; and the ToC entry already sits under the
-volume heading. Since the navigation (D) takes its text from the ToC, it shows the chapter title too.
+**The ToC link text stays `chapter_title`**, as today — the user's decision after review. Labels
+go only to non-syosetu chapters in volumes, in practice EPUB-imported and pasted series, whose
+titles come from the book's own table of contents ("Chapter 3: …", "Interlude", "The Forest Road").
+The user wants the book's titles kept as they are. The ToC entry already sits under its volume
+heading, and the navigation (D) takes its text from the ToC, so it shows the book's title too;
+accepted that prev/next may then show titles without numbers.
 
 Without a label, everything is as in 1.5.5.
 
@@ -160,8 +165,15 @@ Without a label, everything is as in 1.5.5.
 On re-publish the page title, teaser title and teaser text are rebuilt from the payload (as today),
 so a newly sent label replaces the old "Chapter N" wording. The fallback teaser lookup
 (`find_existing_teaser_post`, used when `_tap_linked_post_id` is missing) must look for **both**
-`{short} Chapter {N}` and `{short} {L}` titles, so a relabel never creates a duplicate teaser. The
-"exactly one match" rule is kept across the combined result.
+`{short} Chapter {N}` and `{short} {L}` titles, so the first relabel of a 1.5.5 chapter doesn't
+create a duplicate teaser. The "exactly one match" rule is kept across the combined result.
+
+Accepted gap: the fallback only knows the titles the current request implies. A teaser created under
+a *different* earlier label (e.g. "Volume 2 Chapter 1" renumbered to "Volume 2 Chapter 2") or an
+earlier number is found only through `_tap_linked_post_id`, which every publish since 1.5.0 writes.
+If that meta is missing as well, a duplicate teaser is created, exactly as 1.5.5 does for a renumber.
+
+`chapter_label` and `volume_title` are ignored on a `chapter_index` 0 (synopsis) request.
 
 Renumbering (`previous_chapter_index`) works as today; the label plays no part in lookup.
 
@@ -182,6 +194,12 @@ there's no `<hr />` either, the region is empty for parsing (the navigation draw
 entries are still inserted before the end marker as today. With no end marker at all, today's
 fallback (append a fresh `<h2>Table of Contents</h2>` … end marker) stays.
 
+**Identifying a link.** A ToC link is matched to a page by the **page it resolves to**
+(`url_to_postid` on its href, kept only if that page's parent is the index page), falling back to
+exact string comparison of the `esc_url` forms when it doesn't resolve. So an href written as
+`http://` or without a trailing slash, or left over from a site-URL change that WordPress still
+resolves, is recognised as the same page and rewritten in place, never duplicated.
+
 **Reading the ToC.** A *section* is an `<h3>` volume heading block and the paragraph-link entries
 after it, up to the next heading or the end marker. Entries before the first heading belong to an
 unnamed leading section. An entry's *chapter index* is parsed from its link (the page slug
@@ -197,6 +215,11 @@ today's exact block markup.
 section goes **before the first existing section that contains a chapter index greater than the
 new entry's index** (for illustrations, `first_chapter_index`). If there is no such section, or no
 index to compare (no `first_chapter_index`), it goes at the end, as today.
+
+Limitation: a section, once created, is never moved. A volume section that landed at the end (no
+index to compare, or published after a later volume on a pre-1.6.0 page) stays there until the ToC
+is edited by hand. ta-web keeps this rare by always sending `first_chapter_index` when the volume has
+any numbered chapter in its database, published or not.
 
 **Placing a new chapter entry** inside its section: before the first entry with a higher chapter
 index, else at the end of the section. Illustrations links always stay first. Without
@@ -222,9 +245,12 @@ link isn't in the ToC at all — removed by hand, or lost to the 1.5.5 synopsis 
 placed by the rules above. 1.5.5 never re-added chapter links; under D a missing link means a page
 missing from navigation, so re-publish is the repair path.
 
-**Existing behaviour kept:** the heading-exists check stays a substring match on
-`<h3>{esc_html(volume_title)}</h3>`; `update_toc_entry` still fixes an existing link's href and text
-on re-publish and renumber.
+**No END marker.** The three 1.5.5 shapes are kept: END present → insert inside the region; no END
+but a legacy `<ul class="ta-toc">` → insert after its `</ul>` and add END there; neither → append a
+fresh `<h2>Table of Contents</h2>`, the entry and END.
+
+**Existing behaviour kept:** an existing link's href and text are rewritten in place on re-publish
+and renumber (what `update_toc_entry` did), when it doesn't need to move.
 
 ---
 
@@ -234,13 +260,14 @@ on re-publish and renumber.
 
 | Status | When |
 |---|---|
-| 400 | Invalid JSON, missing or malformed field, invalid `mode`, conflicting `/status` params |
+| 400 | Invalid JSON, missing field, invalid `mode`, conflicting `/status` params, and these malformed fields: `chapter_index`, `previous_chapter_index`, `unlock_chapter_index`, `first_chapter_index` not an integer ≥ 0 (an int, or a string of digits); `publish_date` not parseable as a date; `chapter_label` / `volume_title` present but not a string |
 | 401 | Invalid API key |
 | 404 | Something the request names doesn't exist: `append` with no gallery (`no_gallery`) |
 | 422 | Renumber conflict (`renumber_conflict`) |
 | 500 | WordPress itself failed (insert/update/term/attachment errors) |
 
-**Never 409** (see Anti-goals). Body stays `{"error": "<message>"}`; clients show only that field.
+**Never 409** (see Anti-goals). `no_gallery` is arguably a conflict, but 409 is taken by ta-web's
+"already published" reading, so it is a 404. Body stays `{"error": "<message>"}`; clients show only that field.
 Implementation: `WP_Error` codes map to statuses in one place (e.g. `status` in the error data, or a
 code→status table in the route handlers); anything unmapped is 500.
 
@@ -263,7 +290,9 @@ teaser adoption, ToC heading de-dupe), **then** the new behaviour on top:
 - ToC: region start markers and fallback; synopsis/`<h3>` above the ToC ignored; lenient heading
   match (block-editor `class` attribute); new volume section placed between existing ones; chapter
   moved between volumes; out-of-order link re-placed after a renumber; missing link re-added
-- synopsis publish keeps the ToC intact (and the legacy wipe is no longer pinned)
+- synopsis publish keeps the ToC intact on all four page shapes, with exactly one start marker and
+  one END afterwards (and the legacy wipe is no longer pinned)
+- navigation fallback for pages with the legacy block missing from the ToC
 - navigation: order from the ToC, grouping, skipping non-public pages, current-page marking,
   old nav block stripped, cache invalidation
 - each error status
@@ -280,6 +309,17 @@ about it is stored in page content.
 A page gets the bar when its parent is a page whose ToC links to it — i.e. it appears in its parent's
 parsed ToC (below). This covers every chapter and illustrations page this plugin ever made,
 including pages from before 1.6.0, with no meta needed. The series index page itself gets none.
+
+**Fallback for pages missing from the ToC** (*my call*, after review). A 1.5.5 synopsis publish may
+already have wiped a series' ToC, while its chapters still carry the legacy nav block that *Next
+Page, Not Next Post* fills. So that deactivating the old plugin doesn't strand those readers: a
+page that **contains the legacy nav block** but is not in its parent's parsed ToC gets the bar built
+from its published sibling pages (same parent, excluding the index page itself) ordered by
+`menu_order` then `post_title` — what the old plugin did — with no grouping (one unnamed section)
+and each page's title as link text. Pages without the legacy block and not in the ToC get no bar.
+Re-publishing chapters restores their ToC links (see "Missing links are re-added") and with them the
+ToC-ordered bar. The README's upgrade note says to check each series' ToC has its links before
+deactivating the old plugin, and that missing ones come back on re-publish.
 Only on the singular front-end view of that page (`is_singular('page')`, main query, in the loop);
 not in feeds, excerpts, REST or admin.
 
@@ -318,19 +358,22 @@ Drawn at the top and the bottom of the content, identical:
 
 If the current page is not in the visible list (e.g. an editor previewing a draft), no bar is drawn.
 
-Markup is semantic and namespaced (`.tap-nav`, `.tap-nav__prev`, …). A small stylesheet, enqueued
+The two bars are separate landmarks with distinct labels ("Chapter navigation, top" / "Chapter
+navigation, bottom"). Markup is semantic and namespaced (`.tap-nav`, `.tap-nav__prev`, …). A small stylesheet, enqueued
 only on pages that get the bar, lays it out (flex row, wraps on narrow screens, picker list scrolls
 with a max height) and uses `currentColor` / `inherit` so the theme supplies colours and fonts. No
 images, no external assets. The builder chooses exact spacing and the arrow glyphs.
 
 ### Hooking in
 
-A `the_content` filter at a priority **before** `do_shortcode` (11), e.g. 9:
+Two `the_content` callbacks:
 
-1. Remove the stored legacy nav block — the exact `NAV_BLOCK` string 1.5.5 writes, both copies —
-   and nothing else. The separators stay (*my call*). Remove only that exact string; never touch
-   other content.
-2. Prepend and append the bar.
+1. At priority **9** (before `wpautop` at 10 and `do_shortcode` at 11): remove the stored legacy
+   nav block — the exact `NAV_BLOCK` string 1.5.5 writes, both copies — and nothing else. The
+   separators stay (*my call*). Remove only that exact string; never touch other content. Record
+   whether it was there (for the fallback above).
+2. At priority **20** (after `wpautop`, so it never turns the bar's markup into `<br />`s or stray
+   `<p>`s): prepend and append the bar.
 
 Because the old block is stripped before shortcodes run, it doesn't matter whether *Next Page, Not
 Next Post* is still active; the README and release notes tell the user to deactivate it.
@@ -355,13 +398,20 @@ without any invalidation.
 
 ## E. Synopsis keeps the ToC
 
-`handle_synopsis` (chapter 0) rewrites only what lies **above the ToC start marker** (see "The ToC
-region"): the centred series-title heading and the synopsis body, followed by the existing
-`<hr />` and start marker, built as `build_index_content` does today. Everything from the start
-marker to the end of the page is kept byte for byte. On a page with no start marker (fresh index
-page, or a hand-edited one), it keeps today's behaviour: the whole content becomes
-`build_index_content(...)`, but any existing entries between the last `<hr />` and the end marker
-are carried over after the new start marker (so even a hand-edited page doesn't lose its links).
+`handle_synopsis` (chapter 0) rewrites only what lies **above the ToC**. Exact byte rule (after
+review), with *head* = `build_index_content(...)` cut just before its `<div>Table of Contents:</div>`
+(title heading, synopsis body, `<hr />`):
+
+- **`<div>Table of Contents:</div>` or `<h2>Table of Contents</h2>` found** (the last one before
+  END): new content = *head* + the old content **from that marker onward**, byte for byte. The
+  marker and END appear exactly once.
+- **Legacy `<ul class="ta-toc">` found** (no `<div>`/`<h2>` marker): new content = *head* + the old
+  content from the `<ul …>` onward. (No marker is added; the region rule already starts at the `<ul>`.)
+- **No marker, but END found** (hand-edited page): new content = *head* +
+  `<div>Table of Contents:</div>\n` + the old content after the last `<hr />` before END (or, with
+  no `<hr />`, nothing) + END, so existing entries carry over.
+- **Neither** (fresh index page): `build_index_content(...)` in full, as today.
+
 Response shape unchanged. README: the "Special case: chapter_index = 0" section no longer says
 "an empty Table of Contents".
 
@@ -399,7 +449,7 @@ replaced by this spec (point them at it when the ta-web work lands).
 2. A changed label alone does **not** trigger the re-publish confirmation (409 `confirm_republish`).
 3. **Illustrations payloads** (`build_illustrations_payloads`, `api/illustrations.py` `upload`) add
    `first_chapter_index` — the series-wide `chapter_number` of the volume's first non-Illustrations
-   chapter, omitted if none — and `publish_date` on the first (`replace`) batch when scheduled.
+   chapter in the database, published or not; omitted only if the volume has none — and `publish_date` on the first (`replace`) batch when scheduled.
 4. **Batch publish** gives the Illustrations chapter a schedule slot like any chapter (today it takes
    none: `api/routers/wp.py` around line 173, `api/publish_job.py` around line 52). Single publish of
    the Illustrations chapter may offer a date the same way chapters do (builder's call in ta-web).
