@@ -23,7 +23,7 @@ skipped step is Task 10's manual browser check (see Not verified).
 | 7. Chapter labels | done | bdcedb2 | `tests/test-labels.php` |
 | 8. Illustrations page | done | 204ca2a | `tests/test-illustrations.php` |
 | 9. Chapter navigation | done | 8f09400 | `tests/test-navigation.php` |
-| 10. Docs and version | done | `HEAD` (this commit; run `git log`) | — |
+| 10. Docs and version | done | 4e89b8b | — |
 
 ## Deviations
 
@@ -36,7 +36,8 @@ to the builder that is worth reviewing.
    `tests/bootstrap.php` also requires `tests/class-tap-testcase.php` (PHPUnit
    only auto-loads `test-*.php`); `tests/entrypoint.sh` passes `--skip-ssl` to
    the MariaDB client because the MySQL 8 image's self-signed certificate is
-   rejected by default.
+   rejected by default; `.gitattributes` forces LF for `*.sh` so a Windows
+   checkout does not break the entrypoint copied into the Linux image.
 2. **`tap_validate_fields()` takes `array &$data`** (`translation-assistant-publisher.php:57`)
    rather than `array $data`, so valid digit strings can be normalised to ints
    for the publisher. `tap_error_response()` reads a `status` key from the
@@ -187,18 +188,20 @@ Most worrying first:
 ## Final state
 
 ```
-$ git log --oneline claude/volumes-chapter-nav..HEAD   # before this commit
-f3bf0fe test: PHPUnit harness in Docker
-fb6ebd1 test: characterise 1.5.5 publish and illustrations behaviour
-74477de fix: 404/422 statuses for missing gallery and renumber conflict
-8ebb380 feat: TAP_Toc region, heading match and parsing
-988d86c feat: TAP_Toc placement, moves and synopsis head swap
-df343e1 fix: synopsis keeps the ToC; chapters placed and moved by TAP_Toc
-bdcedb2 feat: optional chapter_label in page and teaser titles
-204ca2a feat: illustrations page title, placement, schedule and status
+$ git log --oneline claude/volumes-chapter-nav..HEAD
+4e89b8b docs: 1.6.0 README and version
 8f09400 feat: built-in chapter navigation from the ToC
-# Task 10 is HEAD: docs: 1.6.0 README and version
+204ca2a feat: illustrations page title, placement, schedule and status
+bdcedb2 feat: optional chapter_label in page and teaser titles
+df343e1 fix: synopsis keeps the ToC; chapters placed and moved by TAP_Toc
+988d86c feat: TAP_Toc placement, moves and synopsis head swap
+8ebb380 feat: TAP_Toc region, heading match and parsing
+74477de fix: 404/422 statuses for missing gallery and renumber conflict
+fb6ebd1 test: characterise 1.5.5 publish and illustrations behaviour
+f3bf0fe test: PHPUnit harness in Docker
 ```
+
+(One further commit records this final state in the handover.)
 
 Final full-suite output: `OK (94 tests, 448 assertions)`.
 
