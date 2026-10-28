@@ -9,7 +9,8 @@ In progress.
 
 | Task | State | Commit | Tests added |
 |---|---|---|---|
-| 1. Test harness | done | see `git log` | `tests/test-smoke.php` |
+| 1. Test harness | done | f3bf0fe | `tests/test-smoke.php` |
+| 2. Characterisation of 1.5.5 | done | see `git log` | `tests/test-publish-legacy.php`, `tests/test-illustrations-legacy.php` |
 
 ## Deviations
 
