@@ -1,2 +1,5 @@
 .superpowers/
 .worktrees/
+
+vendor/
+.phpunit.result.cache

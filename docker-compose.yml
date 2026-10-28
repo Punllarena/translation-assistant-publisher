@@ -9,6 +9,11 @@ services:
       MYSQL_PASSWORD: wppass
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass", "--silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
 
   wordpress:
     image: wordpress:latest
@@ -26,6 +31,18 @@ services:
     volumes:
       - wp_data:/var/www/html
       - ./plugins:/var/www/html/wp-content/plugins
+
+  phpunit:
+    profiles: ["test"]
+    build: ./tests
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WP_PHPUNIT__TESTS_CONFIG: /app/tests/wp-tests-config.php
+      WP_TESTS_DIR: /app/vendor/wp-phpunit/wp-phpunit
+    volumes:
+      - .:/app
 
 volumes:
   db_data:

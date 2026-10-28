@@ -4,7 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class TAP_Publisher {
 
-    private const NAV_BLOCK = "<!-- wp:html -->\n<div id=\"textbox\">\n<p class=\"alignleft\">[previous_page]</p>\n<p class=\"alignright\">[next_page]</p>\n</div>\n<!-- /wp:html -->";
+    public const LEGACY_NAV_BLOCK = "<!-- wp:html -->\n<div id=\"textbox\">\n<p class=\"alignleft\">[previous_page]</p>\n<p class=\"alignright\">[next_page]</p>\n</div>\n<!-- /wp:html -->";
     private const SEPARATOR = "<!-- wp:separator -->\n<hr class=\"wp-block-separator has-alpha-channel-opacity\"/>\n<!-- /wp:separator -->";
 
     public function publish( array $data, int $user_id ): array|WP_Error {
@@ -64,7 +64,8 @@ class TAP_Publisher {
         }
 
         if ( $existing ) {
-            $old_url = get_permalink( $existing->ID ); // capture before any rename
+            $old_url      = get_permalink( $existing->ID ); // capture before any rename
+            $volume_title = isset( $data['volume_title'] ) && is_string( $data['volume_title'] ) ? $data['volume_title'] : '';
 
             if ( $renumbered ) {
                 $rename_result = wp_update_post( [
@@ -79,7 +80,14 @@ class TAP_Publisher {
             if ( is_wp_error( $update_result ) ) return $update_result;
 
             $new_url = get_permalink( $existing->ID );
-            $this->update_toc_entry( $index_id, $old_url, $data['chapter_title'], $new_url );
+            $this->write_toc( $index_id, $series_slug, [
+                'href'          => $new_url,
+                'text'          => $data['chapter_title'],
+                'volume_title'  => $volume_title,
+                'index'         => $chapter_idx,
+                'illustrations' => false,
+                'anchor_index'  => $chapter_idx,
+            ], $old_url );
 
             $linked_post_id = (int) get_post_meta( $existing->ID, '_tap_linked_post_id', true );
             if ( $linked_post_id && get_post( $linked_post_id ) ) {
@@ -121,9 +129,16 @@ class TAP_Publisher {
         $chapter_id = $this->create_chapter_page( $data, $index_id, $user_id );
         if ( is_wp_error( $chapter_id ) ) return new WP_Error( 'page_failed', 'Failed to create page' );
 
-        $chapter_url = get_permalink( $chapter_id );
+        $chapter_url  = get_permalink( $chapter_id );
         $volume_title = isset( $data['volume_title'] ) && is_string( $data['volume_title'] ) ? $data['volume_title'] : '';
-        $this->append_toc_entry( $index_id, $data['chapter_title'], $chapter_url, $volume_title );
+        $this->write_toc( $index_id, $series_slug, [
+            'href'          => $chapter_url,
+            'text'          => $data['chapter_title'],
+            'volume_title'  => $volume_title,
+            'index'         => $chapter_idx,
+            'illustrations' => false,
+            'anchor_index'  => $chapter_idx,
+        ] );
 
         $post_id = $this->create_post( $data, $chapter_url, $user_id );
         if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_failed', 'Failed to create post' );
@@ -168,7 +183,7 @@ class TAP_Publisher {
             $blocks = $this->build_illustrations_blocks( $data['images'], null, $existing->ID );
             $update = wp_update_post( [
                 'ID'           => $existing->ID,
-                'post_content' => rtrim( $existing->post_content ) . "\n\n" . $blocks,
+                'post_content' => wp_slash( rtrim( $existing->post_content ) . "\n\n" . $blocks ),
             ], true );
             if ( is_wp_error( $update ) ) return $update;
             return [
@@ -180,10 +195,11 @@ class TAP_Publisher {
         }
 
         // mode === 'replace'
-        $title = $volume_title !== ''
-               ? "{$volume_title} — Illustrations"
+        $title       = $volume_title !== ''
+               ? "{$volume_title} Illustrations"
                : $data['series_title_short'] . ' Illustrations';
-        $created = false;
+        $first_index = isset( $data['first_chapter_index'] ) ? (int) $data['first_chapter_index'] : null;
+        $created     = false;
 
         if ( $existing ) {
             $gallery_id  = $existing->ID;
@@ -199,38 +215,45 @@ class TAP_Publisher {
         } else {
             $gallery_id = wp_insert_post( [
                 'post_type'      => 'page',
-                'post_title'     => $title,
+                'post_title'     => wp_slash( $title ),
                 'post_name'      => $slug,
                 'post_parent'    => $index_id,
                 'post_status'    => 'publish',
                 'post_author'    => $user_id,
                 'post_content'   => '',
                 'comment_status' => 'closed',
-                'menu_order'     => 0,
+                'menu_order'     => null !== $first_index ? $first_index : 0,
             ], true );
             if ( is_wp_error( $gallery_id ) ) return $gallery_id;
             $created = true;
         }
 
         $blocks = $this->build_illustrations_blocks( $data['images'], $cover, $gallery_id );
-        $update = wp_update_post( [
+        $args   = [
             'ID'           => $gallery_id,
-            'post_title'   => $title,
-            'post_content' => $blocks,
-        ], true );
+            'post_title'   => wp_slash( $title ),
+            'post_content' => wp_slash( $blocks ),
+        ];
+        if ( null !== $first_index ) {
+            $args['menu_order'] = $first_index;
+        }
+        $args   = $this->apply_schedule( $args, $data, true );
+        $update = wp_update_post( $args, true );
         if ( is_wp_error( $update ) ) {
             if ( $created ) wp_delete_post( $gallery_id, true );
             return $update;
         }
 
-        // append_toc_entry only de-dupes the volume <h3>, not the entry line
-        // itself, so add the "Illustrations" link only when the page is newly
-        // created — a re-publish would otherwise stack a second identical link.
-        // (Mirrors the chapter flow: append_toc_entry runs from
-        // create_chapter_page only, never update_chapter_page.)
-        if ( $created ) {
-            $this->append_toc_entry( $index_id, 'Illustrations', get_permalink( $gallery_id ), $volume_title );
-        }
+        // Upsert on every replace: it de-dupes, moves the link under its
+        // volume heading and re-adds a link that was removed by hand.
+        $this->write_toc( $index_id, $series_slug, [
+            'href'          => get_permalink( $gallery_id ),
+            'text'          => 'Illustrations',
+            'volume_title'  => $volume_title,
+            'index'         => null,
+            'illustrations' => true,
+            'anchor_index'  => $first_index,
+        ] );
 
         return [
             'status'   => 'ok',
@@ -242,25 +265,53 @@ class TAP_Publisher {
 
     private function find_existing_teaser_post( array $data ): int {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+
+        // A relabelled 1.5.5 chapter may still be titled "TS Chapter N"; a
+        // chapter relabelled since 1.6.0 is titled "TS {label}". Look for
+        // both, but only adopt an unambiguous single match overall.
+        $titles = [ $data['series_title_short'] . ' Chapter ' . $chapter_idx ];
+        $label  = $this->label( $data );
+        if ( null !== $label ) {
+            $titles[] = $data['series_title_short'] . ' ' . $label;
+        }
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
         if ( ! $child_cat ) return 0;
 
-        $found = get_posts( [
-            'post_type'   => 'post',
-            'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
-            'title'       => $title,
-            'category'    => $child_cat,
-            'numberposts' => 2,
-            'fields'      => 'ids',
-        ] );
+        $found = [];
+        foreach ( $titles as $title ) {
+            $matches = get_posts( [
+                'post_type'   => 'post',
+                'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
+                'title'       => $title,
+                'category'    => $child_cat,
+                'numberposts' => 2,
+                'fields'      => 'ids',
+            ] );
+            foreach ( $matches as $id ) {
+                $found[ (int) $id ] = (int) $id;
+            }
+        }
 
         // Exactly one unambiguous match is adoptable. Zero means it really was
         // never created; two or more means we cannot tell which is canonical,
         // and guessing would compound the very duplication this prevents.
-        return count( $found ) === 1 ? (int) $found[0] : 0;
+        return count( $found ) === 1 ? (int) array_values( $found )[0] : 0;
+    }
+
+    private function label( array $data ): ?string {
+        if ( isset( $data['chapter_label'] ) && is_string( $data['chapter_label'] ) ) {
+            $label = trim( $data['chapter_label'] );
+            if ( '' !== $label ) return $label;
+        }
+        return null;
+    }
+
+    private function reader_page_title( array $data ): string {
+        $label  = $this->label( $data );
+        $number = null !== $label ? $label : (string) (int) $data['chapter_index'];
+        return $data['series_title_short'] . ' ' . $number . ' - ' . $data['chapter_title'];
     }
 
     private function apply_schedule( array $args, array $data, bool $is_page = false ): array {
@@ -285,18 +336,20 @@ class TAP_Publisher {
 
     public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+        $label       = $this->label( $data );
+        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
+        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
         $content     = '<p>' . esc_html( $data['first_line'] ) . '</p>'
-                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
 
         $post_args = [
             'post_type'     => 'post',
-            'post_title'    => $title,
+            'post_title'    => wp_slash( $title ),
             'post_author'   => $user_id,
-            'post_content'  => $content,
+            'post_content'  => wp_slash( $content ),
             'post_category' => $child_cat ? [ $child_cat ] : [],
         ];
 
@@ -307,21 +360,23 @@ class TAP_Publisher {
 
     public function update_post( int $post_id, array $data, string $chapter_url ): int|WP_Error {
         $chapter_idx = (int) $data['chapter_index'];
-        $title       = $data['series_title_short'] . ' Chapter ' . $chapter_idx;
+        $label       = $this->label( $data );
+        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
+        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
 
         // The teaser body is wholly derived from the payload — there is no
         // human-authored content to preserve — so rebuild it exactly the way
         // create_post does rather than patching one line of it.
         $content = '<p>' . esc_html( $data['first_line'] ) . '</p>'
-                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">Read Chapter ' . $chapter_idx . '</a></p>';
+                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
 
         $post_args = [
             'ID'            => $post_id,
-            'post_title'    => $title,
-            'post_content'  => $content,
+            'post_title'    => wp_slash( $title ),
+            'post_content'  => wp_slash( $content ),
             'post_category' => $child_cat ? [ $child_cat ] : [],
         ];
 
@@ -361,6 +416,22 @@ class TAP_Publisher {
         ];
     }
 
+    public function get_illustrations_status( string $series_slug, string $volume_title ): array {
+        $slug = '' !== $volume_title
+            ? "{$series_slug}-illustrations-" . sanitize_title( $volume_title )
+            : "{$series_slug}-illustrations";
+        $page = get_page_by_path( "{$series_slug}/{$slug}", OBJECT, 'page' );
+
+        if ( ! $page ) {
+            return [ 'status' => 'not_found', 'post_url' => null ];
+        }
+
+        return [
+            'status'   => $page->post_status,
+            'post_url' => get_permalink( $page->ID ),
+        ];
+    }
+
     public function create_chapter_page( array $data, int $index_id, int $user_id ): int|WP_Error {
         $series_slug = sanitize_title( $data['series_slug'] );
         $chapter_idx = (int) $data['chapter_index'];
@@ -368,7 +439,7 @@ class TAP_Publisher {
 
         $args = [
             'post_type'      => 'page',
-            'post_title'     => $data['series_title_short'] . ' ' . $chapter_idx . ' - ' . $data['chapter_title'],
+            'post_title'     => wp_slash( $this->reader_page_title( $data ) ),
             'post_name'      => $slug,
             'post_parent'    => $index_id,
             'post_author'    => $user_id,
@@ -392,7 +463,7 @@ class TAP_Publisher {
             $data['cover'] ?? null,
             $chapter_id
         );
-        $update_result = wp_update_post( [ 'ID' => $chapter_id, 'post_content' => $content ], true );
+        $update_result = wp_update_post( [ 'ID' => $chapter_id, 'post_content' => wp_slash( $content ) ], true );
         if ( is_wp_error( $update_result ) ) {
             wp_delete_post( $chapter_id, true );
             return $update_result;
@@ -421,8 +492,8 @@ class TAP_Publisher {
 
         $args = [
             'ID'           => $chapter_id,
-            'post_title'   => $data['series_title_short'] . ' ' . (int) $data['chapter_index'] . ' - ' . $data['chapter_title'],
-            'post_content' => $content,
+            'post_title'   => wp_slash( $this->reader_page_title( $data ) ),
+            'post_content' => wp_slash( $content ),
         ];
 
         // Absence never means "unlock" — unlocking is the explicit
@@ -495,65 +566,27 @@ class TAP_Publisher {
         return $attachment_id;
     }
 
-    public function append_toc_entry( int $index_id, string $chapter_title, string $chapter_url, string $volume_title = '' ): void {
-        $page    = get_post( $index_id );
-        if ( ! $page ) return;
-        $content = $page->post_content;
-        $entry   = "<!-- wp:paragraph -->\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $chapter_title ) . "</a></p>\n<!-- /wp:paragraph -->";
-
-        // Volume heading: emitted once per volume, before that volume's first chapter link.
-        // The substring check against existing content is what makes this idempotent —
-        // no publish-order state is tracked anywhere.
-        if ( '' !== $volume_title ) {
-            $heading = '<h3>' . esc_html( $volume_title ) . '</h3>';
-            if ( ! str_contains( $content, $heading ) ) {
-                $entry = "<!-- wp:heading {\"level\":3} -->\n{$heading}\n<!-- /wp:heading -->\n\n" . $entry;
-            }
-        }
-
-        if ( str_contains( $content, '<!-- ta-toc-end -->' ) ) {
-            $content = str_replace( '<!-- ta-toc-end -->', $entry . "\n\n<!-- ta-toc-end -->", $content );
-        } elseif ( str_contains( $content, '<ul class="ta-toc">' ) ) {
-            // Legacy list-based ToC: keep existing <li> entries, add new paragraph entries after the list
-            // $entry may contain literal '$' or '\' (e.g. from a volume/chapter title); preg_replace's
-            // replacement argument treats those as backreference syntax, so escape them first.
-            $entry_escaped = str_replace( ['\\', '$'], ['\\\\', '\\$'], $entry );
-            $content = preg_replace(
-                '/(<ul class="ta-toc">.*?<\/ul>)/s',
-                '$1' . "\n\n" . $entry_escaped . "\n\n<!-- ta-toc-end -->",
-                $content,
-                1
-            );
-        } else {
-            // ToC block missing — append fresh at end
-            $content .= "\n\n<h2>Table of Contents</h2>\n{$entry}\n\n<!-- ta-toc-end -->";
-        }
-
-        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
-        if ( is_wp_error( $result ) ) {
-            error_log( 'TAP: append_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
-        }
-    }
-
-    public function update_toc_entry( int $index_id, string $old_url, string $new_title, string $new_url ): void {
+    /**
+     * Read the index page, let TAP_Toc place or move one entry, and save only
+     * when the content actually changed.
+     */
+    private function write_toc( int $index_id, string $series_slug, array $entry, ?string $old_href = null ): void {
         $page = get_post( $index_id );
         if ( ! $page ) return;
 
-        $pattern     = '/<a href="' . preg_quote( esc_url( $old_url ), '/' ) . '">.*?<\/a>/s';
-        $replacement = '<a href="' . esc_url( $new_url ) . '">' . esc_html( $new_title ) . '</a>';
+        $resolve = function ( string $href ) use ( $index_id ): int {
+            $id = url_to_postid( $href );
+            if ( ! $id ) return 0;
+            $post = get_post( $id );
+            return $post && (int) $post->post_parent === $index_id ? $id : 0;
+        };
 
-        $content = preg_replace_callback(
-            $pattern,
-            fn() => $replacement,
-            $page->post_content,
-            1,
-            $count
-        );
-        if ( $count === 0 ) return; // no matching anchor — nothing to fix
+        $content = TAP_Toc::upsert( $page->post_content, $series_slug, $entry, $old_href, $resolve );
+        if ( $content === $page->post_content ) return;
 
-        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => $content ], true );
+        $result = wp_update_post( [ 'ID' => $index_id, 'post_content' => wp_slash( $content ) ], true );
         if ( is_wp_error( $result ) ) {
-            error_log( 'TAP: update_toc_entry failed for post ' . $index_id . ': ' . $result->get_error_message() );
+            error_log( 'TAP: write_toc failed for post ' . $index_id . ': ' . $result->get_error_message() );
         }
     }
 
@@ -567,7 +600,7 @@ class TAP_Publisher {
             'post_title'     => $series_title,
             'post_name'      => $series_slug,
             'post_author'    => $user_id,
-            'post_content'   => $this->build_index_content( $series_title, $series_link, '' ),
+            'post_content'   => wp_slash( $this->build_index_content( $series_title, $series_link, '' ) ),
             'comment_status' => 'open',
             'menu_order'     => 0,
         ], true );
@@ -576,13 +609,30 @@ class TAP_Publisher {
     }
 
     public function handle_synopsis( int $index_page_id, string $series_title, string $series_link, string $chapter_body ): int|WP_Error {
-        $content = $this->build_index_content( $series_title, $series_link, $chapter_body );
-        $result  = wp_update_post( [
+        $page = get_post( $index_page_id );
+        if ( ! $page ) {
+            return new WP_Error( 'page_missing', 'Index page not found' );
+        }
+
+        $content = TAP_Toc::replace_head( $page->post_content, $this->build_index_head( $series_title, $series_link, $chapter_body ) );
+
+        $result = wp_update_post( [
             'ID'           => $index_page_id,
-            'post_content' => $content,
+            'post_content' => wp_slash( $content ),
         ], true );
 
         return $result;
+    }
+
+    /**
+     * build_index_content() cut just before its <div>Table of Contents:</div>:
+     * title heading, synopsis body and <hr /> only.
+     */
+    private function build_index_head( string $series_title, string $series_link, string $synopsis_body ): string {
+        $marker = '<div>Table of Contents:</div>';
+        $full   = $this->build_index_content( $series_title, $series_link, $synopsis_body );
+        $pos    = strpos( $full, $marker );
+        return false === $pos ? $full : substr( $full, 0, $pos );
     }
 
     private function build_index_content( string $series_title, string $series_link, string $synopsis_body ): string {
@@ -636,7 +686,7 @@ class TAP_Publisher {
             }
         }
 
-        return $cover_block . self::NAV_BLOCK . "\n\n" . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR . "\n\n" . self::NAV_BLOCK;
+        return $cover_block . self::SEPARATOR . "\n\n" . $body . "\n\n" . self::SEPARATOR;
     }
 
     private function build_illustrations_blocks( array $images, ?array $cover, int $post_id ): string {

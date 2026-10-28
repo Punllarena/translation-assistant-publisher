@@ -1,0 +1,2 @@
+# The PHPUnit entrypoint is COPYed into a Linux image; CRLF would break it.
+*.sh text eol=lf

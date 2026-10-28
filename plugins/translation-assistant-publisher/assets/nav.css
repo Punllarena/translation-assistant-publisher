@@ -1,0 +1,50 @@
+.tap-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+}
+
+.tap-nav__prev,
+.tap-nav__next {
+    flex: 1 1 6rem;
+}
+
+.tap-nav__next {
+    text-align: right;
+}
+
+.tap-nav__picker {
+    flex: 0 1 auto;
+    text-align: center;
+}
+
+.tap-nav__picker summary {
+    cursor: pointer;
+}
+
+.tap-nav__volume,
+.tap-nav__heading {
+    display: block;
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+.tap-nav__list {
+    max-height: 60vh;
+    overflow: auto;
+    text-align: left;
+}
+
+.tap-nav__items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tap-nav__items a[aria-current="page"] {
+    font-weight: 700;
+    text-decoration: none;
+}
