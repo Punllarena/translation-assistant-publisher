@@ -12,7 +12,8 @@ In progress.
 | 1. Test harness | done | f3bf0fe | `tests/test-smoke.php` |
 | 2. Characterisation of 1.5.5 | done | see `git log` | `tests/test-publish-legacy.php`, `tests/test-illustrations-legacy.php` |
 | 3. Error statuses | done | 74477de | `tests/test-errors.php` |
-| 4. `TAP_Toc` region/parse | done | f5bb5e8 | `tests/test-toc-parse.php` |
+| 4. `TAP_Toc` region/parse | done | 8ebb380 | `tests/test-toc-parse.php` |
+| 5. `TAP_Toc` placement | done | see `git log` | `tests/test-toc-place.php` |
 
 ## Deviations
 
@@ -35,6 +36,25 @@ In progress.
   run red first.
 
 ## Builder's calls
+
+- Harness: PHPUnit 9.6 with `wp-phpunit/wp-phpunit` 6.6 and
+  `roots/wordpress-no-content` installed under `vendor/wordpress`; the repo
+  root is bind-mounted at `/app`, MySQL runs in the existing `db` service and
+  the entrypoint creates `wordpress_test` if needed.
+- ToC parsing uses offset-captured regexes (`PREG_OFFSET_CAPTURE`) merged by
+  document offset; the ToC region starts just after the last start marker (or
+  last `<hr />`) and ends at the first END marker.
+- A legacy `<ul class="ta-toc">` link that a re-publish wants to move is
+  rewritten in place instead: this class did not create the list item and
+  removing it would leave an empty `<li>`. Legacy pages only have a leading
+  section, so ordering is effectively unaffected.
+- An order-only move (a re-publish without `volume_title` that is out of
+  order) re-inserts the entry into the section it was already in; a move with
+  a `volume_title` re-inserts into that volume's section. A missing link is
+  placed in the leading section when no volume is sent.
+- Insertion whitespace is `"\n\n"`-separated block splicing; extra blank
+  lines can accumulate after a move (invisible in HTML), but a same-place
+  rewrite replaces only the anchor, byte for byte.
 
 ## Problems
 
