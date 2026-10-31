@@ -216,6 +216,14 @@ The Table of Contents is written as static HTML into the Index page content. It 
 
 ---
 
+## Upgrading to 1.6.1
+
+- Chapter pages and their teaser posts are titled "{series} {volume} - {chapter title}" ("{series} - {chapter title}" with no volume), and the teaser link reads "Read {chapter title}". The chapter number and `chapter_label` text no longer appear in titles.
+- Existing teaser posts keep their old titles until the chapter is published again; publishing finds the old-titled post, renames it and does not create a duplicate. Chapter pages are found by slug, so they are never duplicated.
+- A payload without `chapter_label` now also loses the chapter number in its titles.
+
+---
+
 ## Upgrading to 1.6.0
 
 - Check each series' index page still lists its chapters before deactivating *Next Page, Not Next Post*. Pages that still contain the old navigation block keep navigating by page order until then; re-publishing a chapter (or its illustrations page) restores a missing ToC link and the ToC-ordered bar.
