@@ -266,13 +266,20 @@ class TAP_Publisher {
     private function find_existing_teaser_post( array $data ): int {
         $chapter_idx = (int) $data['chapter_index'];
 
-        // A relabelled 1.5.5 chapter may still be titled "TS Chapter N"; a
-        // chapter relabelled since 1.6.0 is titled "TS {label}". Look for
-        // both, but only adopt an unambiguous single match overall.
-        $titles = [ $data['series_title_short'] . ' Chapter ' . $chapter_idx ];
-        $label  = $this->label( $data );
+        // A 1.5.5 chapter is titled "TS Chapter N"; a labelled one from 1.6.0
+        // is titled "TS {label}"; this version writes "TS {volume} - {title}"
+        // (or "TS - {title}"). Look for all shapes the same chapter may be
+        // titled with, but only adopt an unambiguous single match overall.
+        $titles = [
+            $data['series_title_short'] . ' Chapter ' . $chapter_idx,
+            // A teaser adopted before the chapter gained a volume keeps the
+            // no-volume form, so that one is always looked for.
+            $data['series_title_short'] . ' - ' . $this->chapter_title_text( $data ),
+        ];
+        $label = $this->label( $data );
         if ( null !== $label ) {
             $titles[] = $data['series_title_short'] . ' ' . $label;
+            $titles[] = $this->display_title( $data );
         }
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
@@ -280,7 +287,7 @@ class TAP_Publisher {
         if ( ! $child_cat ) return 0;
 
         $found = [];
-        foreach ( $titles as $title ) {
+        foreach ( array_unique( $titles ) as $title ) {
             $matches = get_posts( [
                 'post_type'   => 'post',
                 'post_status' => [ 'publish', 'draft', 'future', 'pending', 'private' ],
@@ -308,10 +315,51 @@ class TAP_Publisher {
         return null;
     }
 
+    /**
+     * The volume to show in reader-facing titles. ta-web sends chapter_label
+     * only for a chapter that sits in a volume, so its presence is the signal
+     * that volume_title belongs in the title; without it the titles carry no
+     * volume (a syosetu series keeps its own chapter numbering in the ToC).
+     */
+    private function title_volume( array $data ): string {
+        if ( null === $this->label( $data ) ) return '';
+        return isset( $data['volume_title'] ) && is_string( $data['volume_title'] )
+            ? trim( $data['volume_title'] )
+            : '';
+    }
+
+    /**
+     * The chapter's own title, or a numbered fallback when the payload holds
+     * none (the route requires one, but a chapter_title consisting only of the
+     * series prefix is stripped to nothing in publish()).
+     */
+    private function chapter_title_text( array $data ): string {
+        $title = isset( $data['chapter_title'] ) && is_string( $data['chapter_title'] )
+            ? trim( $data['chapter_title'] )
+            : '';
+        return '' !== $title ? $title : 'Chapter ' . (int) $data['chapter_index'];
+    }
+
+    /**
+     * Reader-facing title for the chapter page and its teaser post:
+     * "{series} {volume} - {chapter_title}", or "{series} - {chapter_title}"
+     * without a volume. Never the series-wide chapter number or the label.
+     */
+    private function display_title( array $data ): string {
+        $title  = (string) $data['series_title_short'];
+        $volume = $this->title_volume( $data );
+        if ( '' !== $volume ) {
+            $title .= ' ' . $volume;
+        }
+        return $title . ' - ' . $this->chapter_title_text( $data );
+    }
+
+    private function read_link_text( array $data ): string {
+        return 'Read ' . $this->chapter_title_text( $data );
+    }
+
     private function reader_page_title( array $data ): string {
-        $label  = $this->label( $data );
-        $number = null !== $label ? $label : (string) (int) $data['chapter_index'];
-        return $data['series_title_short'] . ' ' . $number . ' - ' . $data['chapter_title'];
+        return $this->display_title( $data );
     }
 
     private function apply_schedule( array $args, array $data, bool $is_page = false ): array {
@@ -335,12 +383,10 @@ class TAP_Publisher {
     }
 
     public function create_post( array $data, string $chapter_url, int $user_id ): int|WP_Error {
-        $chapter_idx = (int) $data['chapter_index'];
-        $label       = $this->label( $data );
-        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
-        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
-        $content     = '<p>' . esc_html( $data['first_line'] ) . '</p>'
-                     . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
+        $title   = $this->display_title( $data );
+        $read    = $this->read_link_text( $data );
+        $content = '<p>' . esc_html( $data['first_line'] ) . '</p>'
+                 . "\n<p><a href=\"" . esc_url( $chapter_url ) . '">' . esc_html( $read ) . '</a></p>';
 
         $parent_cat = $this->get_or_create_category( 'Web Novel Translation' );
         $child_cat  = $parent_cat ? $this->get_or_create_category( $data['series_title_short'], $parent_cat ) : 0;
@@ -359,10 +405,8 @@ class TAP_Publisher {
     }
 
     public function update_post( int $post_id, array $data, string $chapter_url ): int|WP_Error {
-        $chapter_idx = (int) $data['chapter_index'];
-        $label       = $this->label( $data );
-        $title       = $data['series_title_short'] . ' ' . ( null !== $label ? $label : 'Chapter ' . $chapter_idx );
-        $read        = null !== $label ? 'Read ' . $label : 'Read Chapter ' . $chapter_idx;
+        $title = $this->display_title( $data );
+        $read  = $this->read_link_text( $data );
 
         // The teaser body is wholly derived from the payload — there is no
         // human-authored content to preserve — so rebuild it exactly the way

@@ -60,24 +60,31 @@ All endpoints are under `/wp-json/ta-publisher/v1/`.
 | `api_key` | Yes | Generated from settings page |
 | `series_title` | Yes | Full series title |
 | `series_slug` | Yes | URL-safe identifier |
-| `series_title_short` | Yes | Used in post titles (e.g. "SotW Chapter 1") |
+| `series_title_short` | Yes | Series short title used in page and post titles (e.g. "SotW Volume 2 - The Forest Road") |
 | `series_link` | No | Link to the original source; EPUB-imported series have none |
 | `volume_title` | No | Volume heading used on the index page; the name is frozen once published |
 | `chapter_index` | Yes | `0` = synopsis, `1`+ = chapters; the series-wide number and the lookup key |
 | `previous_chapter_index` | No | The index this chapter was last published at, when it has been renumbered |
 | `chapter_title` | Yes | Chapter title (also the ToC link text) |
-| `chapter_label` | No | Reader-facing label, e.g. "Volume 2 Chapter 3". Trimmed; blank = absent; plain text |
+| `chapter_label` | No | Marks the chapter as sitting in a volume, which puts `volume_title` in the reader-facing titles. Trimmed; blank = absent; plain text |
 | `chapter_body` | Yes | HTML content |
 | `first_line` | When `chapter_index > 0` | Used as the teaser post's opening line |
 | `password` | No | Protects the chapter page |
 | `unlock_chapter_index` | No | Removes protection from that chapter |
 | `publish_date` | No | UTC `YYYY-MM-DDTHH:MM:SSZ`; schedules the chapter; omitting it publishes now and clears an earlier schedule |
 
-### Chapter labels
+### Page and post titles
 
-`chapter_label` replaces the series-wide number in what readers see — the chapter page title (`SotW Volume 2 Chapter 3 - The Forest Road`), the teaser post title (`SotW Volume 2 Chapter 3`) and its "Read …" link. The ToC link text stays `chapter_title`, and page addresses never change because of a label.
+The chapter page and its teaser post share one title: the series short title, the volume when the chapter sits in one, and the chapter's own title.
 
-Without `chapter_label` the 1.5.5 wording is used (`SotW 14 - …`, `SotW Chapter 14`, `Read Chapter 14`). Re-publishing rebuilds the titles from the payload, so a newly sent label replaces the old wording. The fallback teaser lookup accepts both the old and the new title, so the first relabel does not create a duplicate teaser.
+| Chapter | Page title | Teaser title | Teaser "Read …" link |
+|---|---|---|---|
+| in `Volume 2` | `SotW Volume 2 - The Forest Road` | `SotW Volume 2 - The Forest Road` | `Read The Forest Road` |
+| no volume | `SotW - The Forest Road` | `SotW - The Forest Road` | `Read The Forest Road` |
+
+The series-wide chapter number and `chapter_label` never appear in a title. `chapter_label` is still sent and is the signal that the chapter sits in a volume: when it is present, and `volume_title` is too, the volume joins the title. ta-web sends it only for chapters of non-syosetu series that sit in a volume, so the desktop app's and syosetu payloads get the no-volume form. A payload with no usable `chapter_title` falls back to `Chapter {chapter_index}` after the volume, so the title never ends in a bare separator.
+
+The ToC link text stays `chapter_title`, and page addresses never change (a chapter page is looked up by its `{series}-c{index}` slug, never by title). Re-publishing rebuilds the titles from the payload. The fallback teaser lookup accepts the old `SotW Chapter 14` and `SotW Volume 2 Chapter 3` titles as well as the new form, so the first re-publish after upgrading renames the existing teaser instead of duplicating it.
 
 `chapter_label` and `volume_title` are ignored on a synopsis request (`chapter_index` 0).
 
@@ -89,7 +96,7 @@ Rewrites only the part of the index page above the Table of Contents: the source
 
 When republishing (chapter already exists):
 
-- The chapter **page title**, **body**, **opening line** (teaser), and **category** are updated from the payload.
+- The chapter **page title**, **body**, **opening line** (teaser), and **category** are updated from the payload. A page or teaser published by an earlier version is retitled to the current form (`SotW Volume 2 - The Forest Road`, or `SotW - The Forest Road` without a volume).
 - The **teaser post** link, title, content, and category are updated to reflect the chapter's current content.
 - The ToC link is rewritten in place, moved to the right volume or re-ordered after a renumber. A link that was removed by hand is re-added.
 - If `password` is supplied, it is applied to the chapter page; if omitted, any existing password protection is preserved. Use `unlock_chapter_index` to remove protection.
@@ -217,7 +224,7 @@ The Table of Contents is written as static HTML into the Index page content. It 
 - The 1.6.0 changes:
   - volume-aware ToC placement, including chapter moves between volumes
   - illustrations pages titled "{volume} Illustrations", first under their volume, schedulable and visible to `/status`
-  - optional `chapter_label` in page and teaser titles
+  - optional `chapter_label` marking a volume chapter, and chapter page and teaser post titles that carry the volume and the chapter's own title instead of the chapter number
   - synopsis publishes keep the ToC
   - meaningful HTTP statuses (400/401/404/422/500; never 409)
   - built-in chapter navigation bar replacing *Next Page, Not Next Post*
